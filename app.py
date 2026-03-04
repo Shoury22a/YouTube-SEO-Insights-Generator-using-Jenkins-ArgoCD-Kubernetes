@@ -26,79 +26,134 @@ st.set_page_config(
 # ─────────────────────────────────────────────────────────────────────────────
 # Custom CSS
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Custom Premium CSS (Glassmorphism & Vibrant Aesthetics)
+# ─────────────────────────────────────────────────────────────────────────────
 st.markdown(
     """
     <style>
-        /* Google Font */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        /* Modern Typography */
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
 
-        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+        html, body, [class*="css"] { 
+            font-family: 'Outfit', sans-serif; 
+            color: #f0f0f0;
+        }
 
-        /* Dark gradient background */
+        /* Responsive Background */
         .stApp {
-            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+            background: radial-gradient(circle at top right, #1e1e3f 0%, #0f0f1a 100%);
+            background-attachment: fixed;
         }
 
-        /* Header banner */
+        /* Glassmorphism Sidebar */
+        section[data-testid="stSidebar"] {
+            background: rgba(255, 255, 255, 0.03) !important;
+            backdrop-filter: blur(12px);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* Premium Hero Banner Aria */
         .hero-banner {
-            background: linear-gradient(90deg, #ff0000 0%, #c0392b 100%);
-            border-radius: 14px;
-            padding: 24px 32px;
-            margin-bottom: 24px;
-            box-shadow: 0 8px 32px rgba(255, 0, 0, 0.3);
+            background: linear-gradient(135deg, hsl(340, 100%, 50%) 0%, hsl(280, 100%, 40%) 100%);
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 15px 45px rgba(255, 0, 80, 0.2);
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .hero-banner h1 { color: #fff; font-size: 2rem; margin: 0; font-weight: 700; }
-        .hero-banner p  { color: rgba(255,255,255,0.85); margin: 6px 0 0; font-size: 1rem; }
-
-        /* Section expander headers */
-        .section-title {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #e0e0e0;
-            letter-spacing: 0.03em;
+        .hero-banner h1 { 
+            color: #fff; 
+            font-size: 3rem; 
+            margin: 0; 
+            font-weight: 700; 
+            letter-spacing: -1px;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .hero-banner p { 
+            color: rgba(255,255,255,0.9); 
+            margin-top: 10px; 
+            font-size: 1.2rem; 
+            font-weight: 300;
         }
 
-        /* Output card style */
-        .output-card {
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 10px;
-            padding: 18px 20px;
+        /* Glass Cards for Sections */
+        .stExpander {
+            background: rgba(255, 255, 255, 0.04) !important;
+            border-radius: 12px !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            overflow: hidden;
             margin-bottom: 12px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .stExpander:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.4);
+            border-color: rgba(255, 255, 255, 0.15) !important;
         }
 
-        /* Tag pill */
+        /* Glowing Generate Button */
+        .stButton > button {
+            background: linear-gradient(90deg, #ff0050 0%, #cc00ff 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 12px !important;
+            font-weight: 700 !important;
+            font-size: 1.1rem !important;
+            padding: 15px 0 !important;
+            width: 100% !important;
+            box-shadow: 0 8px 20px rgba(255, 0, 80, 0.3) !important;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .stButton > button:hover {
+            transform: scale(1.02);
+            box-shadow: 0 12px 30px rgba(255, 0, 80, 0.5) !important;
+        }
+        .stButton > button:active {
+            transform: scale(0.98);
+        }
+
+        /* Tag Pill Modern Styling */
         .tag-pill {
             display: inline-block;
-            background: rgba(255, 0, 0, 0.18);
-            border: 1px solid rgba(255, 0, 0, 0.4);
-            color: #ff6b6b;
-            border-radius: 20px;
-            padding: 3px 12px;
-            margin: 3px 4px 3px 0;
-            font-size: 0.82rem;
-            font-weight: 500;
-        }
-
-        /* Streamlit widget tweaks */
-        .stTextArea textarea { background: rgba(255,255,255,0.05) !important; color: #e0e0e0 !important; }
-        .stTextInput input  { background: rgba(255,255,255,0.05) !important; color: #e0e0e0 !important; }
-        div[data-testid="stSidebar"] { background: rgba(255,255,255,0.03) !important; }
-
-        /* Generate button */
-        .stButton > button {
-            background: linear-gradient(90deg, #ff0000, #c0392b);
-            color: white;
-            border: none;
-            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #ff0050;
+            border-radius: 30px;
+            padding: 5px 15px;
+            margin: 5px;
+            font-size: 0.85rem;
             font-weight: 600;
-            font-size: 1rem;
-            padding: 10px 32px;
-            width: 100%;
-            transition: opacity 0.2s;
+            transition: all 0.2s ease;
         }
-        .stButton > button:hover { opacity: 0.85; }
-        .stButton > button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .tag-pill:hover {
+            background: #ff0050;
+            color: white;
+            border-color: #ff0050;
+        }
+
+        /* Input Overrides */
+        .stTextArea textarea, .stTextInput input {
+            background: rgba(0,0,0,0.2) !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+            border-radius: 10px !important;
+            color: #fff !important;
+            padding: 15px !important;
+        }
+        .stTextArea textarea:focus, .stTextInput input:focus {
+            border-color: #ff0050 !important;
+            box-shadow: 0 0 10px rgba(255,0,80,0.2) !important;
+        }
+
+        /* Responsive Adjustments */
+        @media (max-width: 768px) {
+            .hero-banner h1 { font-size: 2.2rem; }
+            .hero-banner p { font-size: 1rem; }
+            [data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; }
+        }
     </style>
     """,
     unsafe_allow_html=True,
