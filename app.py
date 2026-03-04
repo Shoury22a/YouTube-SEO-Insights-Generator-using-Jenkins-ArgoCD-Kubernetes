@@ -17,15 +17,12 @@ logger = get_logger(__name__)
 # Page config (MUST be first Streamlit call)
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="YouTube SEO Insights Generator",
-    page_icon="🎬",
+    page_title="TubeRank AI — YouTube SEO Insights",
+    page_icon="assets/logo.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Custom CSS
-# ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 # Custom Premium CSS (Glassmorphism & Vibrant Aesthetics)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -33,64 +30,139 @@ st.markdown(
     """
     <style>
         /* Modern Typography */
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&display=swap');
 
         html, body, [class*="css"] { 
             font-family: 'Outfit', sans-serif; 
             color: #f0f0f0;
         }
 
-        /* Responsive Background */
+        /* Animated Dark Background */
         .stApp {
-            background: radial-gradient(circle at top right, #1e1e3f 0%, #0f0f1a 100%);
+            background: #0a0a12;
+            background-image: 
+                radial-gradient(ellipse at 10% 20%, rgba(255, 0, 80, 0.07) 0%, transparent 50%),
+                radial-gradient(ellipse at 90% 80%, rgba(120, 0, 255, 0.07) 0%, transparent 50%);
             background-attachment: fixed;
         }
 
         /* Glassmorphism Sidebar */
         section[data-testid="stSidebar"] {
-            background: rgba(255, 255, 255, 0.03) !important;
-            backdrop-filter: blur(12px);
+            background: rgba(15, 15, 26, 0.8) !important;
+            backdrop-filter: blur(20px);
             border-right: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        /* Premium Hero Banner Aria */
+        /* Hero Banner */
         .hero-banner {
-            background: linear-gradient(135deg, hsl(340, 100%, 50%) 0%, hsl(280, 100%, 40%) 100%);
-            border-radius: 20px;
-            padding: 40px;
-            margin-bottom: 30px;
-            box-shadow: 0 15px 45px rgba(255, 0, 80, 0.2);
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            background: linear-gradient(135deg, #1a0a2e 0%, #0f0f1a 100%);
+            border-radius: 24px;
+            padding: 50px 40px;
+            margin-bottom: 36px;
+            border: 1px solid rgba(255, 0, 80, 0.2);
+            overflow: hidden;
+        }
+        .hero-banner::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(204, 0, 255, 0.15) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        .hero-banner::after {
+            content: '';
+            position: absolute;
+            bottom: -50%;
+            left: -10%;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255, 0, 80, 0.12) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        .hero-brand {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 16px;
+        }
+        .hero-brand img { 
+            width: 64px; 
+            height: 64px; 
+            border-radius: 16px;
+            box-shadow: 0 0 30px rgba(255, 0, 80, 0.4);
+        }
+        .hero-badge {
+            display: inline-block;
+            background: linear-gradient(90deg, rgba(255,0,80,0.2), rgba(204,0,255,0.2));
+            border: 1px solid rgba(255, 0, 80, 0.4);
+            border-radius: 30px;
+            padding: 4px 14px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #ff6b9d;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
         }
         .hero-banner h1 { 
             color: #fff; 
-            font-size: 3rem; 
+            font-size: 3.5rem; 
             margin: 0; 
-            font-weight: 700; 
-            letter-spacing: -1px;
-            text-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            font-weight: 800; 
+            letter-spacing: -2px;
+            line-height: 1.1;
+            background: linear-gradient(135deg, #ffffff 0%, #d4d4d4 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
-        .hero-banner p { 
-            color: rgba(255,255,255,0.9); 
-            margin-top: 10px; 
-            font-size: 1.2rem; 
+        .hero-banner .hero-sub { 
+            color: rgba(255,255,255,0.55); 
+            margin-top: 12px; 
+            font-size: 1.15rem; 
             font-weight: 300;
+            max-width: 600px;
+        }
+        .hero-stats {
+            display: flex;
+            gap: 24px;
+            margin-top: 28px;
+            flex-wrap: wrap;
+        }
+        .stat-chip {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 10px 20px;
+            font-size: 0.85rem;
+        }
+        .stat-chip span { 
+            display: block; 
+            font-size: 1.3rem; 
+            font-weight: 700;
+            background: linear-gradient(90deg, #ff0050, #cc00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
-        /* Glass Cards for Sections */
+        /* Glass Cards */
         .stExpander {
-            background: rgba(255, 255, 255, 0.04) !important;
-            border-radius: 12px !important;
-            border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            overflow: hidden;
+            background: rgba(255, 255, 255, 0.03) !important;
+            border-radius: 16px !important;
+            border: 1px solid rgba(255, 255, 255, 0.07) !important;
             margin-bottom: 12px;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            transition: all 0.3s ease;
         }
         .stExpander:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.4);
-            border-color: rgba(255, 255, 255, 0.15) !important;
+            border-color: rgba(255, 0, 80, 0.3) !important;
+            box-shadow: 0 0 20px rgba(255, 0, 80, 0.08);
         }
 
         /* Glowing Generate Button */
@@ -98,60 +170,80 @@ st.markdown(
             background: linear-gradient(90deg, #ff0050 0%, #cc00ff 100%) !important;
             color: white !important;
             border: none !important;
-            border-radius: 12px !important;
+            border-radius: 14px !important;
+            font-family: 'Outfit', sans-serif !important;
             font-weight: 700 !important;
-            font-size: 1.1rem !important;
-            padding: 15px 0 !important;
+            font-size: 1.05rem !important;
+            padding: 18px 0 !important;
             width: 100% !important;
-            box-shadow: 0 8px 20px rgba(255, 0, 80, 0.3) !important;
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
+            box-shadow: 0 8px 30px rgba(255, 0, 80, 0.35) !important;
+            transition: all 0.3s ease !important;
         }
         .stButton > button:hover {
-            transform: scale(1.02);
-            box-shadow: 0 12px 30px rgba(255, 0, 80, 0.5) !important;
+            box-shadow: 0 12px 40px rgba(255, 0, 80, 0.55) !important;
+            transform: translateY(-2px);
         }
-        .stButton > button:active {
-            transform: scale(0.98);
-        }
+        .stButton > button:active { transform: scale(0.98); }
 
-        /* Tag Pill Modern Styling */
+        /* Tag Pills */
         .tag-pill {
             display: inline-block;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #ff0050;
+            background: rgba(255, 0, 80, 0.08);
+            border: 1px solid rgba(255, 0, 80, 0.25);
+            color: #ff6b9d;
             border-radius: 30px;
-            padding: 5px 15px;
-            margin: 5px;
-            font-size: 0.85rem;
+            padding: 5px 16px;
+            margin: 4px;
+            font-size: 0.83rem;
             font-weight: 600;
             transition: all 0.2s ease;
+            cursor: default;
         }
         .tag-pill:hover {
             background: #ff0050;
-            color: white;
+            color: #fff;
             border-color: #ff0050;
+            box-shadow: 0 0 12px rgba(255, 0, 80, 0.4);
         }
 
-        /* Input Overrides */
+        /* Section Divider */
+        hr { border-color: rgba(255,255,255,0.06) !important; }
+
+        /* Input Fields */
         .stTextArea textarea, .stTextInput input {
-            background: rgba(0,0,0,0.2) !important;
-            border: 1px solid rgba(255,255,255,0.1) !important;
-            border-radius: 10px !important;
+            background: rgba(255, 255, 255, 0.04) !important;
+            border: 1px solid rgba(255,255,255,0.08) !important;
+            border-radius: 12px !important;
             color: #fff !important;
-            padding: 15px !important;
         }
         .stTextArea textarea:focus, .stTextInput input:focus {
-            border-color: #ff0050 !important;
-            box-shadow: 0 0 10px rgba(255,0,80,0.2) !important;
+            border-color: rgba(255, 0, 80, 0.5) !important;
+            box-shadow: 0 0 0 3px rgba(255, 0, 80, 0.1) !important;
         }
 
-        /* Responsive Adjustments */
+        /* Sidebar label */
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 0 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+            margin-bottom: 20px;
+        }
+        .sidebar-brand-name {
+            font-weight: 700;
+            font-size: 1.1rem;
+            background: linear-gradient(90deg, #ff0050, #cc00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Mobile Responsive */
         @media (max-width: 768px) {
-            .hero-banner h1 { font-size: 2.2rem; }
-            .hero-banner p { font-size: 1rem; }
+            .hero-banner h1 { font-size: 2.4rem; }
+            .hero-stats { gap: 12px; }
             [data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; }
         }
     </style>
@@ -160,14 +252,40 @@ st.markdown(
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Hero Banner
+# Hero Banner — TubeRank AI
 # ─────────────────────────────────────────────────────────────────────────────
+import base64
+
+def _img_to_b64(path: str) -> str:
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return ""
+
+logo_b64 = _img_to_b64("assets/logo.png")
+logo_html = f'<img src="data:image/png;base64,{logo_b64}" />' if logo_b64 else "🎬"
+
 st.markdown(
-    """
+    f"""
     <div class="hero-banner">
-        <h1>🎬 YouTube SEO Insights Generator</h1>
-        <p>Generate A/B titles, descriptions, timestamps, tags, social posts &amp;
-           thumbnail ideas — powered by GPT-4.</p>
+        <div class="hero-brand">
+            {logo_html}
+            <div>
+                <div class="hero-badge">✦ Powered by Gemini 2.0 Flash</div>
+                <h1>TubeRank AI</h1>
+            </div>
+        </div>
+        <p class="hero-sub">
+            Generate viral titles, SEO tags, timestamps, social posts &amp; thumbnail ideas —
+            in seconds. Built for creators who want to rank.
+        </p>
+        <div class="hero-stats">
+            <div class="stat-chip"><span>10+</span>Languages</div>
+            <div class="stat-chip"><span>AI</span>Competitor Intel</div>
+            <div class="stat-chip"><span>∞</span>Hinglish Support</div>
+            <div class="stat-chip"><span>6</span>Output Sections</div>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
