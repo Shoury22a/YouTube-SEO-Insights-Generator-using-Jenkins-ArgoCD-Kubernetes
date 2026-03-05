@@ -472,7 +472,7 @@ if generate_clicked:
 
     # ── 2. AI generation ─────────────────────────────────────────────────────
     try:
-        with st.spinner("🤖 GPT-4 is crafting your SEO package... this may take 15-30 seconds"):
+        with st.spinner("🤖 Gemini 2.0 Flash is crafting your SEO package... this may take 15-30 seconds"):
             result = _cached_generate(
                 topic=topic.strip(),
                 audience=audience.strip(),

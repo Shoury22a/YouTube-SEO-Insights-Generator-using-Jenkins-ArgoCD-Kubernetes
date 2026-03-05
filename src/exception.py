@@ -39,7 +39,7 @@ class ScrapingException(SEOAppException):
 
 
 class APIException(SEOAppException):
-    """Raised when the OpenAI / GPT-4 API call fails (rate limits, timeouts, bad responses)."""
+    """Raised when the Gemini 2.0 Flash API call fails (rate limits, timeouts, bad responses)."""
     pass
 
 
