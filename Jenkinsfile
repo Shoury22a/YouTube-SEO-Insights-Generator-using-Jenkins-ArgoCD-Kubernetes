@@ -2,15 +2,16 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = "your-dockerhub-username/youtube-seo-app"
-        DOCKER_REGISTRY_CREDENTIALS_ID = "dockerhub-id"
+        DOCKER_IMAGE = "shoury22a/youtube-seo-app"
+        // This is the ID of the credentials you create in Jenkins (Manage Jenkins -> Credentials)
+        DOCKER_REGISTRY_CREDENTIALS_ID = "dockerhub-creds"
         K8S_SECRET_NAME = "youtube-seo-secrets"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/your-username/seo-optimization.git'
+                git branch: 'main', url: 'https://github.com/shourya22a/seo-optimization.git'
             }
         }
 
