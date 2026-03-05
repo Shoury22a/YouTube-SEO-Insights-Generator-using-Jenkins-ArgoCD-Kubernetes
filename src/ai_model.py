@@ -60,8 +60,18 @@ Respond ONLY with a valid JSON object matching this schema exactly:
     "linkedin": "<LinkedIn post>",
     "instagram": "<Instagram caption with hashtags>"
   },
-  "thumbnail_ideas": ["<idea_1>", "<idea_2>", "<idea_3>"]
+  "thumbnail_ideas": ["<idea_1>", "<idea_2>", "<idea_3>"],
+  "niche_analysis": {
+    "saturation_score": 7,
+    "competition_level": "High",
+    "recommendation": "<1-2 sentence actionable advice, e.g. suggest a sub-niche angle>"
+  },
+  "contrarian_titles": []
 }
+Rules:
+- niche_analysis.saturation_score: integer 1-10 (10=most crowded).
+- niche_analysis.competition_level: exactly one of 'Low', 'Medium', 'High'.
+- contrarian_titles: array of 2 strings that challenge the dominant angle in the competitor context. If no competitor context provided, return an empty array [].
 Output ONLY the raw JSON. No markdown fences, no explanation outside the JSON.
 """
 
@@ -135,6 +145,8 @@ SHORTS CONSTRAINTS:
 - Tags highly trend-focused and specific.
 - Social posts: energetic, short-form hooks.
 - No keyword stuffing. Natural prose only.
+- Always populate niche_analysis with saturation_score, competition_level, and recommendation.
+- contrarian_titles: 2 contrarian titles if competitor context provided, else [].
 
 {lang_instruction}
 {_JSON_SCHEMA}"""
@@ -154,6 +166,12 @@ GUIDELINES:
 - Social posts: Twitter = conversational ≤280 chars. LinkedIn = professional insight.
   Instagram = visual, energetic, rich in hashtags.
 - Thumbnail ideas: vivid, specific visual concepts — describe text overlay, colours, expressions.
+- Niche Analysis: Based on your knowledge of the YouTube content landscape, assess how crowded this
+  topic is. Give a saturation_score (1-10), a competition_level, and a concrete recommendation
+  (e.g. 'Niche down to iPhone 15 battery life comparisons' or 'Low competition — publish broadly').
+- Contrarian Titles: If competitor context is provided, generate exactly 2 titles that take the
+  OPPOSITE or most provocative angle to the competitor's title/approach. These should be bold,
+  disruptive, and designed to stand out. If no competitor context provided, return [].
 
 Strictly no keyword stuffing. All keywords must appear naturally within sentences.
 {lang_instruction}

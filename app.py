@@ -7,7 +7,7 @@ import os
 import sys
 import streamlit as st
 from src.logger import get_logger
-from src.extractor import extract_video_metadata
+from src.extractor import extract_video_metadata, compute_niche_saturation, compute_contrarian_score
 from src.ai_model import generate_seo_metadata, MAX_TRANSCRIPT_CHARS
 from src.exception import APIException, ValidationException, SEOAppException
 
@@ -485,7 +485,15 @@ if generate_clicked:
             )
         st.session_state["last_result"] = result
         st.session_state["last_content_type"] = content_type
+        st.session_state["last_topic"] = topic.strip()
+        st.session_state["last_competitor_title"] = meta.get("title", "") if competitor_url.strip() and meta else ""
         logger.info("UI: SEO generation complete. Rendering results.")
+
+        # ── Real-data niche saturation (replaces Gemini’s guess) ────────────
+        with st.spinner("📊 Analysing real YouTube competition for your niche..."):
+            real_niche = compute_niche_saturation(topic.strip())
+        st.session_state["real_niche"] = real_niche
+        logger.info(f"Niche saturation computed: {real_niche.get('saturation_score')}/10")
 
     except APIException as e:
         st.error(f"🚨 **API Error:** {e}", icon="🚨")
@@ -518,12 +526,107 @@ if result:
     st.markdown("---")
     st.success("🎉 Your SEO package is ready! Use the expanders below to copy each section.", icon="✅")
 
+    # ── Feature 5: Niche Saturation Score (REAL DATA) ──────────────────────────
+    niche = st.session_state.get("real_niche") or result.get("niche_analysis", {})
+    if niche and isinstance(niche, dict):
+        raw_score = niche.get("saturation_score", 5)
+        try:
+            score = int(raw_score)
+        except (ValueError, TypeError):
+            score = 5
+        score = max(1, min(10, score))
+
+        level = niche.get("competition_level", "Medium")
+        rec   = niche.get("recommendation", "")
+        avg_views    = niche.get("avg_views", 0)
+        n_analyzed   = niche.get("results_analyzed", 0)
+        top_titles   = niche.get("top_video_titles", [])
+        data_source  = niche.get("data_source", "gemini")
+        source_badge = "🟢 Live YouTube Data" if data_source == "live_youtube" else "🟡 AI Estimate"
+
+        if score >= 7:
+            bar_color, badge_emoji, badge_label = "#ff4444", "🔴", "Very Crowded"
+        elif score >= 4:
+            bar_color, badge_emoji, badge_label = "#ffaa00", "🟡", "Moderate"
+        else:
+            bar_color, badge_emoji, badge_label = "#00cc66", "🟢", "Low Competition"
+
+        with st.expander(f"📊 Niche Saturation Score — {badge_emoji} {badge_label}", expanded=True):
+            col_score, col_detail = st.columns([1, 3])
+            with col_score:
+                st.markdown(
+                    f"""
+                    <div style='text-align:center;padding:10px'>
+                        <div style='font-size:3.5rem;font-weight:800;color:{bar_color};line-height:1'>{score}</div>
+                        <div style='font-size:0.85rem;opacity:0.6;margin-top:4px'>out of 10</div>
+                        <div style='margin-top:8px;font-weight:600;color:{bar_color}'>{badge_emoji} {badge_label}</div>
+                        <div style='margin-top:6px;font-size:0.75rem;opacity:0.55'>{source_badge}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            with col_detail:
+                st.markdown(f"**Competition Level:** {level}")
+                st.progress(score / 10)
+                if avg_views > 0 and n_analyzed > 0:
+                    st.markdown(
+                        f"**Data:** Analysed top **{n_analyzed}** YouTube results — "
+                        f"average views = **{avg_views:,}** │ max = **{niche.get('max_views', 0):,}**"
+                    )
+                if rec:
+                    st.info(f"💡 **Recommendation:** {rec}", icon="💡")
+                if top_titles:
+                    with st.expander("🏹 Top competing video titles"):
+                        for t in top_titles:
+                            st.markdown(f"- {t}")
+
     # ── Titles ────────────────────────────────────────────────────────────────
     with st.expander("🏆 A/B Titles", expanded=True):
         st.markdown("*Click the copy icon on any title to copy it to your clipboard.*")
         for i, title in enumerate(result.get("titles", []), 1):
             st.markdown(f"**Option {i}**")
             st.code(title, language=None)
+
+    # ── Feature 4: Contrarian Hook Generator (with real Divergence Scores) ──────
+    contrarian = result.get("contrarian_titles", [])
+    competitor_title_for_score = st.session_state.get("last_competitor_title", "")
+    if contrarian and isinstance(contrarian, list) and any(contrarian):
+        with st.expander("🎭 Contrarian Hooks — Stand-Out Titles", expanded=True):
+            st.markdown(
+                "*These titles deliberately challenge the competitor\u2019s angle. "
+                "**Divergence Score** = how mathematically different it is (Jaccard Word Divergence).*"
+            )
+            for i, ct in enumerate(contrarian, 1):
+                if ct and ct.strip():
+                    ct = ct.strip()
+                    if competitor_title_for_score:
+                        score_data = compute_contrarian_score(competitor_title_for_score, ct)
+                        ds = score_data["divergence_score"]
+                        interp = score_data["interpretation"]
+                        shared = score_data["shared_words"]
+                        clr = "#00cc66" if ds >= 7 else "#ffaa00" if ds >= 5 else "#ff4444"
+                        score_badge = (
+                            f'<span style="color:{clr};font-weight:800;font-size:1.1rem">'
+                            f"{ds}/10</span> "
+                            f'<span style="opacity:0.6;font-size:0.85rem">{interp}</span>'
+                        )
+                        if shared:
+                            overlap_note = f"*Shared words (reduced contrast): {', '.join(shared)}*"
+                        else:
+                            overlap_note = "*No word overlap with competitor — maximum contrast!*"
+                    else:
+                        score_badge = ""
+                        overlap_note = ""
+
+                    st.markdown(f"**Contrarian Title {i}**")
+                    if score_badge:
+                        st.markdown(score_badge, unsafe_allow_html=True)
+                    st.code(ct, language=None)
+                    if overlap_note:
+                        st.caption(overlap_note)
+            st.caption(
+                "💡 Tip: Contrarian titles often get 2-3x higher CTR because they disrupt viewer expectations."
+            )
 
     # ── Description ───────────────────────────────────────────────────────────
     with st.expander("📄 Optimized Description", expanded=True):
