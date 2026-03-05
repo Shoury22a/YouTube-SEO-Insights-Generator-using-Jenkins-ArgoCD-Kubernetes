@@ -576,9 +576,9 @@ if result:
                 if rec:
                     st.info(f"💡 **Recommendation:** {rec}", icon="💡")
                 if top_titles:
-                    with st.expander("🏹 Top competing video titles"):
-                        for t in top_titles:
-                            st.markdown(f"- {t}")
+                    st.markdown("**🏹 Top competing videos analyzed:**")
+                    for t in top_titles:
+                        st.markdown(f"&nbsp;&nbsp;• {t}")
 
     # ── Titles ────────────────────────────────────────────────────────────────
     with st.expander("🏆 A/B Titles", expanded=True):
