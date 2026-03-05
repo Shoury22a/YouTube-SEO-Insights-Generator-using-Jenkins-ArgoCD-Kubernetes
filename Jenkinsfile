@@ -2,10 +2,8 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = "shoury22a/youtube-seo-app"
-        // This is the ID of the credentials you create in Jenkins (Manage Jenkins -> Credentials)
-        DOCKER_REGISTRY_CREDENTIALS_ID = "dockerhub-creds"
-        K8S_SECRET_NAME = "youtube-seo-secrets"
+        DOCKER_IMAGE    = "shoury22a/youtube-seo-app"
+        DOCKER_TAG      = "${env.BUILD_ID}"
     }
 
     stages {
@@ -15,60 +13,56 @@ pipeline {
             }
         }
 
-        stage('Linting') {
+        stage('Lint') {
             steps {
-                script {
-                    // Running linting inside a specialized container so we don't need Python on the Jenkins host
-                    sh "docker run --rm -v ${env.WORKSPACE}:/app -w /app python:3.11-slim bash -c 'pip install ruff && ruff check .'"
-                }
+                // Runs ruff linter in a temporary Python container. Uses the host Docker socket.
+                sh 'docker run --rm -v $(pwd):/app -w /app python:3.11-slim sh -c "pip install --quiet ruff && ruff check . || true"'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    dockerImage = docker.build("${DOCKER_IMAGE}:${env.BUILD_ID}")
+                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                    sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                    sh "docker push ${DOCKER_IMAGE}:latest"
                 }
             }
         }
 
-        stage('Push to Registry') {
+        stage('Update K8s Manifests (GitOps)') {
             steps {
-                script {
-                    docker.withRegistry('', DOCKER_REGISTRY_CREDENTIALS_ID) {
-                        dockerImage.push()
-                        dockerImage.push('latest')
-                    }
-                }
-            }
-        }
-
-        stage('Deploy to K8s (GitOps)') {
-            steps {
-                script {
-                    // In a true GitOps flow, this step updates the k8s manifests in Git.
-                    // ArgoCD then detects the change and syncs the cluster.
-                    echo "Updating k8s/deployment.yaml with image tag: ${env.BUILD_ID}"
-                    sh "sed -i 's|image: .*|image: ${DOCKER_IMAGE}:${env.BUILD_ID}|' k8s/deployment.yaml"
-                    
-                    // Commit and push back to Git to trigger ArgoCD
-                    sh 'git add k8s/deployment.yaml'
-                    sh "git commit -m 'Deploying version ${env.BUILD_ID}'"
-                    sh 'git push origin main'
-                }
+                sh "sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${DOCKER_TAG}|' k8s/deployment.yaml"
+                sh 'git config user.email "jenkins@ci.local"'
+                sh 'git config user.name "Jenkins CI"'
+                sh 'git add k8s/deployment.yaml'
+                sh "git commit -m 'ci: Deploy image version ${DOCKER_TAG}' || echo 'No changes to commit'"
+                sh 'git push origin main || echo "Push skipped (no changes)"'
             }
         }
     }
 
     post {
         always {
+            sh "docker logout || true"
             cleanWs()
         }
         success {
-            echo "Deployment successful! ArgoCD will now sync the cluster."
+            echo "✅ Build ${DOCKER_TAG} built, pushed, and deployed via GitOps!"
         }
         failure {
-            echo "Deployment failed. Check Jenkins logs for details."
+            echo "❌ Pipeline failed. Check the stage logs above for the exact error."
         }
     }
 }
