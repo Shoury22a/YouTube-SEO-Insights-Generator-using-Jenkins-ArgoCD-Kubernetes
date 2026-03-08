@@ -21,7 +21,6 @@ Edge-case handling:
 
 import json
 import os
-import re
 import sys
 import time
 from typing import Optional

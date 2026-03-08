@@ -1,0 +1,19 @@
+# Implement Automated Testing and Linting (Stage 2)
+
+We will add automated code quality checks to the GitHub Actions pipeline to ensure only valid, bug-free code is released.
+
+## Proposed Changes
+
+### [CI/CD Configuration]
+
+#### [MODIFY] [.github/workflows/deploy.yml](file:///c:/Users/HP/Desktop/SEO%20optimization/.github/workflows/deploy.yml)
+*   Add a `lint-and-test` job that runs before `build-and-push`.
+*   Include steps for:
+    *   Python environment setup.
+    *   `ruff` linting.
+    *   `pytest` unit tests.
+
+### [New Tests]
+
+#### [NEW] [tests/test_basic.py](file:///c:/Users/HP/Desktop/SEO%20optimization/tests/test_basic.py)
+*   Create a basic sanity test that ensures the core modules (`src.ai_model`, `src.extractor`) can be imported without errors.

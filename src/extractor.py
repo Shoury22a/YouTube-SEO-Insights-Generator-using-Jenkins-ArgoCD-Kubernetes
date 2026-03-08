@@ -9,7 +9,6 @@ Additional utilities:
 """
 
 import re
-import sys
 import yt_dlp
 from src.logger import get_logger
 

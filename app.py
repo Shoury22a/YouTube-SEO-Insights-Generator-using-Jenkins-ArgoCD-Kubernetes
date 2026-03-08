@@ -3,8 +3,7 @@ YouTube SEO Insights Generator — Streamlit Frontend
 Provides a rich UI for generating AI-powered YouTube SEO metadata.
 """
 
-import os
-import sys
+import base64
 import streamlit as st
 from src.logger import get_logger
 from src.extractor import extract_video_metadata, compute_niche_saturation, compute_contrarian_score
@@ -254,7 +253,6 @@ st.markdown(
 # ─────────────────────────────────────────────────────────────────────────────
 # Hero Banner — TubeRank AI
 # ─────────────────────────────────────────────────────────────────────────────
-import base64
 
 def _img_to_b64(path: str) -> str:
     try:
@@ -455,9 +453,12 @@ if generate_clicked:
             meta = extract_video_metadata(competitor_url.strip())
         if meta:
             parts = []
-            if meta.get("title"):       parts.append(f"Title: {meta['title']}")
-            if meta.get("description"): parts.append(f"Description: {meta['description']}")
-            if meta.get("creator"):     parts.append(f"Channel: {meta['creator']}")
+            if meta.get("title"):
+                parts.append(f"Title: {meta['title']}")
+            if meta.get("description"):
+                parts.append(f"Description: {meta['description']}")
+            if meta.get("creator"):
+                parts.append(f"Channel: {meta['creator']}")
             competitor_context = "\n".join(parts)
             st.success(
                 f"✅ Scraped competitor: **{meta.get('title', 'Unknown')}** "

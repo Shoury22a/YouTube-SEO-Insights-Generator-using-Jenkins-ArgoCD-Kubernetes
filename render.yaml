@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: tuberank-ai
+    env: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
