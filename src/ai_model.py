@@ -46,9 +46,11 @@ MAX_TRANSCRIPT_CHARS = 25_000
 MAX_TAG_CHARS        = 500
 SHORT_TITLE_MAX      = 45
 
-PRIMARY_MODEL  = "gemini-2.0-flash"
-FALLBACK_MODEL = "gemini-1.5-pro-latest"
-SUMMARY_MODEL  = "gemini-2.0-flash-lite"
+PRIMARY_MODEL       = "gemini-2.0-flash"
+FALLBACK_PRO_MODEL  = "gemini-1.5-pro-latest"
+FALLBACK_FLASH_MODEL = "gemini-1.5-flash"
+FALLBACK_8B_MODEL    = "gemini-1.5-flash-8b"
+SUMMARY_MODEL       = "gemini-2.0-flash-lite"
 
 
 # ---------------------------------------------------------------------------
@@ -103,35 +105,47 @@ def _get_api_key() -> str:
 
 def _build_llm_with_fallback() -> ChatGoogleGenerativeAI:
     """
-    Returns the primary LangChain LLM (Gemini Flash) with the Pro model
-    as an automatic fallback. If primary hits a quota/rate-limit error,
-    LangChain transparently retries with the fallback model.
+    Returns a robust LangChain LLM chain with multiple automatic fallbacks.
+    If the primary model hits a quota/rate-limit (429), LangChain 
+    transparently retries with the next model in the chain.
     """
     api_key = _get_api_key()
 
-    primary = ChatGoogleGenerativeAI(
-        model=PRIMARY_MODEL,
-        google_api_key=api_key,
-        temperature=0.7,
-        max_output_tokens=4096,
-    )
-    fallback = ChatGoogleGenerativeAI(
-        model=FALLBACK_MODEL,
-        google_api_key=api_key,
-        temperature=0.7,
-        max_output_tokens=4096,
-    )
+    def _make_llm(name: str, tokens: int = 4096) -> ChatGoogleGenerativeAI:
+        return ChatGoogleGenerativeAI(
+            model=name,
+            google_api_key=api_key,
+            temperature=0.7,
+            max_output_tokens=tokens,
+        )
+
+    primary  = _make_llm(PRIMARY_MODEL)
+    f1_flash = _make_llm(FALLBACK_FLASH_MODEL)
+    f2_pro   = _make_llm(FALLBACK_PRO_MODEL)
+    f3_8b    = _make_llm(FALLBACK_8B_MODEL)
+
+    # Relay race: 2.0 Flash -> 1.5 Flash -> 1.5 Pro -> 1.5 Flash-8B
+    return primary.with_fallbacks([f1_flash, f2_pro, f3_8b])
+
+
+def _build_summary_llm_with_fallback() -> ChatGoogleGenerativeAI:
+    """
+    Returns the summary LLM with its own fallback chain.
+    """
+    api_key = _get_api_key()
+
+    def _make_llm(name: str) -> ChatGoogleGenerativeAI:
+        return ChatGoogleGenerativeAI(
+            model=name,
+            google_api_key=api_key,
+            temperature=0.3,
+            max_output_tokens=700,
+        )
+
+    primary  = _make_llm(SUMMARY_MODEL)
+    fallback = _make_llm(FALLBACK_FLASH_MODEL)
+
     return primary.with_fallbacks([fallback])
-
-
-def _build_summary_llm() -> ChatGoogleGenerativeAI:
-    """Lightweight model dedicated to transcript summarization."""
-    return ChatGoogleGenerativeAI(
-        model=SUMMARY_MODEL,
-        google_api_key=_get_api_key(),
-        temperature=0.3,
-        max_output_tokens=700,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +172,7 @@ def _summarise_transcript(transcript: str) -> str:
         "Running LangChain map-reduce summarisation pipeline."
     )
     try:
-        llm = _build_summary_llm()
+        llm = _build_summary_llm_with_fallback()
 
         # Split transcript into manageable chunks
         splitter = RecursiveCharacterTextSplitter(
@@ -387,16 +401,12 @@ def generate_seo_metadata(
         err_str = str(e)
         err_lower = err_str.lower()
 
-        if any(x in err_lower for x in ["api key", "api_key", "permission_denied", "403", "invalid"]):
+        if any(x in err_lower for x in ["quota", "resource_exhausted", "429", "rate limit"]):
             raise APIException(
-                f"Invalid GOOGLE_API_KEY. Check your key at https://aistudio.google.com/app/apikey. "
+                "All AI models are currently at their free-tier quota limits. "
+                "The LangChain fallback chain (4 models deep) has been exhausted. "
+                "Please wait 60 seconds and try again. "
                 f"Details: {err_str}", sys
-            ) from e
-
-        if "validation" in err_lower or "pydantic" in err_lower:
-            raise ValidationException(
-                f"The AI returned data that could not be validated. "
-                f"Try submitting again. Details: {err_str}", sys
             ) from e
 
         raise APIException(f"LangChain chain error: {err_str}", sys) from e
