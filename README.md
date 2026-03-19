@@ -1,15 +1,16 @@
-# 🚀 TubeRank AI: Enterprise YouTube SEO (Gemini-Powered)
+# 🚀 TubeRank AI: Enterprise YouTube SEO (Gemini & LangChain Powered)
 
 [![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen?style=for-the-badge&logo=streamlit)](https://youtube-seo-insights-generator-using-jenkins-argocd-kubernetes.streamlit.app/)
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.41.1-ff4b4b.svg)](https://streamlit.io/)
+[![LangChain](https://img.shields.io/badge/Framework-LangChain-121212.svg)](https://langchain.com/)
 [![Gemini](https://img.shields.io/badge/AI-Gemini%202.0%20Flash-orange.svg)](https://deepmind.google/technologies/gemini/)
 [![Kubernetes](https://img.shields.io/badge/Orchestration-Kubernetes-326ce5.svg)](https://kubernetes.io/)
 [![GitOps](https://img.shields.io/badge/GitOps-ArgoCD-efaf19.svg)](https://argoproj.github.io/cd/)
 
 **[🔗 Access the Live Web App Here](https://youtube-seo-insights-generator-using-jenkins-argocd-kubernetes.streamlit.app/)**
 
-TubeRank AI is a professional-grade SEO engine designed to give creators a competitive edge. Built on a full Enterprise DevOps stack, it leverages **Gemini 2.0 Flash** to generate viral metadata, analyze niche competition, and craft disruptive "contrarian" hooks based on real-world data.
+TubeRank AI is a professional-grade SEO engine designed to give creators a competitive edge. Built on a full Enterprise DevOps stack, it leverages **LangChain** and **Gemini 2.0 Flash** to generate viral metadata, analyze niche competition, and craft disruptive "contrarian" hooks based on real-world data.
 
 ---
 
@@ -25,10 +26,14 @@ Generate titles that deliberately challenge the dominant angle in your niche to 
 - **Mathematical Validation:** Every hook is scored using **Jaccard Word Divergence** (1-10) against the top competitor.
 - **Logic:** High scores (8+) indicate maximum conceptual contrast, triggering the "Pattern Interrupt" effect in viewers.
 
-### 🧠 3. Advanced AI Engine
-- **JSON Native Mode**: Guarantees 100% structured output for seamless copy-pasting.
+### 🧠 3. Advanced LangChain Engine
+- **JSON Native Mode**: Powered by `PydanticOutputParser` for guaranteed 100% structured output.
+- **Recursive Splitting**: Intelligently handles scripts and transcripts up to **25,000+ characters** using automated NLP chunking.
 - **Hinglish Optimization**: Specifically tuned for the Indian creator market (Conversational Hindi-English mix).
-- **Auto-Summarization**: Efficiently handles transcripts up to **25,000+ characters** using an automated NLP pipeline.
+
+### 🌓 4. Premium Adaptive UX
+- **Dynamic Theming**: Features a built-in **Light/Dark mode** toggle with a premium Glassmorphism aesthetic.
+- **Responsive Layout**: Optimized for 100% screen resolution with high-contrast, professional typography.
 
 ---
 
@@ -36,18 +41,19 @@ Generate titles that deliberately challenge the dominant angle in your niche to 
 
 - **Containerization**: 🐳 Dockerized for environment parity.
 - **Orchestration**: ☸️ Kubernetes (K8s) for self-healing and zero-downtime rolling updates.
-- **CI Pipeline**: 🏗️ Jenkins automation for linting, testing, and building images.
-- **CD/GitOps**: 🐙 ArgoCD for automated synchronization between GitHub manifests and the live cluster.
+- **CI Pipeline**: 🏗️ **GitHub Actions** automation for linting, testing, and building images.
+- **CD/GitOps**: 🐙 **ArgoCD** for automated synchronization between GitHub manifests and the live cluster.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: Streamlit (Premium Glassmorphism UI)
-- **AI Backend**: Google Generative AI (Gemini 2.0 Flash)
+- **Frontend**: Streamlit (Premium Adaptive UI)
+- **AI Framework**: LangChain
+- **AI Model**: Google Gemini 2.0 Flash
 - **Scraper**: yt-dlp (Bypasses standard bot protection)
 - **Metrics**: Jaccard Similarity / Set Theory Divergence
-- **Infrastructure**: Docker, Kubernetes, Jenkins, ArgoCD
+- **Infrastructure**: Docker, Kubernetes, GitHub Actions, ArgoCD
 
 ---
 
@@ -56,17 +62,18 @@ Generate titles that deliberately challenge the dominant angle in your niche to 
 ```mermaid
 graph LR
     User([User]) --> Streamlit[Streamlit UI]
-    Streamlit --> AI[Gemini 2.0 Flash]
+    Streamlit --> LangChain[LangChain Engine]
+    LangChain --> Gemini[Gemini 2.0 Flash]
     Streamlit --> Scraper[yt-dlp Scraper]
     
     subgraph DevOps Pipeline
-    Jenkins[Jenkins CI] --> Docker[Docker Build]
+    GHA[GitHub Actions] --> Docker[Docker Build]
     Docker --> Registry[DockerHub]
     Registry --> ArgoCD[ArgoCD GitOps]
     ArgoCD --> K8s[Kubernetes Cluster]
     end
     
-    GitHub((GitHub)) -- Trigger --> Jenkins
+    GitHub((GitHub)) -- Trigger --> GHA
     GitHub -- Sync --> ArgoCD
 ```
 
