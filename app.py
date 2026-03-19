@@ -7,7 +7,7 @@ import base64
 import streamlit as st
 from src.logger import get_logger
 from src.extractor import extract_video_metadata, compute_niche_saturation, compute_contrarian_score
-from src.ai_model import generate_seo_metadata, MAX_TRANSCRIPT_CHARS
+from src.ai_model import generate_seo_metadata, check_api_connection, MAX_TRANSCRIPT_CHARS
 from src.exception import APIException, ValidationException, SEOAppException
 
 logger = get_logger(__name__)
@@ -320,6 +320,16 @@ with st.sidebar:
         placeholder="https://www.youtube.com/watch?v=...",
         help="We'll scrape metadata to give the AI competitive context.",
     )
+
+
+    st.markdown("---")
+    st.markdown("## 🔍 System Status")
+    api_check = check_api_connection()
+    if api_check["status"]:
+        st.success(f"🟢 **Gemini API:** {api_check['message']}")
+    else:
+        st.error(f"🔴 **Gemini API:** {api_check['message']}")
+        st.caption(f"Details: {api_check['details']}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ Generates structured SEO metadata:
 import os
 import sys
 import time
+import requests
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -46,11 +47,11 @@ MAX_TRANSCRIPT_CHARS = 25_000
 MAX_TAG_CHARS        = 500
 SHORT_TITLE_MAX      = 45
 
-PRIMARY_MODEL       = "gemini-2.0-flash"
-FALLBACK_PRO_MODEL  = "gemini-1.5-pro-latest"
-FALLBACK_FLASH_MODEL = "gemini-1.5-flash"
-FALLBACK_8B_MODEL    = "gemini-1.5-flash-8b"
-SUMMARY_MODEL       = "gemini-2.0-flash-lite"
+PRIMARY_MODEL       = "gemini-2.5-flash"
+FALLBACK_PRO_MODEL  = "gemini-2.5-pro"
+FALLBACK_FLASH_MODEL = "gemini-1.5-flash"  # Kept as legacy fallback if needed
+FALLBACK_8B_MODEL    = "gemini-2.5-flash"  # Defaulting 8B to 2.5 Flash if 8B not in list
+SUMMARY_MODEL       = "gemini-2.5-flash"
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +310,43 @@ def _enforce_short_titles(titles: list) -> list:
         else:
             result.append(t)
     return result
+
+
+# ---------------------------------------------------------------------------
+# API Connection Diagnostic (Privacy-Safe)
+# ---------------------------------------------------------------------------
+
+def check_api_connection() -> dict:
+    """
+    Performs a minimal, zero-cost metadata call to verify if the API key
+    is valid and has an active quota.
+    
+    Returns:
+        dict with keys: 'status' (bool), 'message' (str), 'details' (str)
+    """
+    try:
+        api_key = _get_api_key()
+        # Minimalist call: just list models (doesn't use quota/cost)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            return {
+                "status": True,
+                "message": "Connected",
+                "details": "Gemini 2.0 Flash is ready."
+            }
+        
+        err_msg = response.json().get("error", {}).get("message", "Unknown Error")
+        return {
+            "status": False,
+            "message": "Error",
+            "details": f"API Rejected: {err_msg}"
+        }
+    except APIException as e:
+        return {"status": False, "message": "Error", "details": str(e)}
+    except Exception as e:
+        return {"status": False, "message": "Error", "details": f"Connection failed: {e}"}
 
 
 # ---------------------------------------------------------------------------
