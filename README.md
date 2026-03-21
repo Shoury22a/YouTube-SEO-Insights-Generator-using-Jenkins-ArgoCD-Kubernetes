@@ -1,6 +1,5 @@
 # 🚀 TubeRank AI: Enterprise YouTube SEO (Gemini & LangChain Powered)
 
-[![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen?style=for-the-badge&logo=streamlit)](https://youtube-seo-insights-generator-using-jenkins-argocd-kubernetes.streamlit.app/)
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.41.1-ff4b4b.svg)](https://streamlit.io/)
 [![LangChain](https://img.shields.io/badge/Framework-LangChain-121212.svg)](https://langchain.com/)
@@ -8,7 +7,6 @@
 [![Kubernetes](https://img.shields.io/badge/Orchestration-Kubernetes-326ce5.svg)](https://kubernetes.io/)
 [![GitOps](https://img.shields.io/badge/GitOps-ArgoCD-efaf19.svg)](https://argoproj.github.io/cd/)
 
-**[🔗 Access the Live Web App Here](https://youtube-seo-insights-generator-using-jenkins-argocd-kubernetes.streamlit.app/)**
 
 TubeRank AI is a professional-grade SEO engine designed to give creators a competitive edge. Built on a full Enterprise DevOps stack, it leverages **LangChain** and **Gemini 2.0 Flash** to generate viral metadata, analyze niche competition, and craft disruptive "contrarian" hooks based on real-world data.
 
