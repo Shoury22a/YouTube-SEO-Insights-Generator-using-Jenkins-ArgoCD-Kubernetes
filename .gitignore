@@ -5,15 +5,30 @@ __pycache__/
 dist/
 build/
 .eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-# ──── Environment ────
+# ──── Environment & Local ────
 .env
 .venv/
 venv/
 env/
+jenkins_home/
+temp_test/
 
 # ──── Logs ────
 logs/
+*.log
+
+# ──── Documentation & Markers ────
+*.resolved
+walkthrough.md
+implementation_plan.md
+COMMANDS.md
+
+# ──── CI/CD ────
+Jenkinsfile
 
 # ──── IDE ────
 .vscode/
