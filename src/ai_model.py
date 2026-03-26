@@ -459,6 +459,41 @@ def generate_seo_metadata(
         elif isinstance(ts, dict):
             normalized_timestamps.append(ts)
 
+    # Final metadata dictionary
+    metadata = {
+        "titles": seo.titles,
+        "description": seo.description,
+        "timestamps": normalized_timestamps,
+        "tags": seo.tags,
+        "social_posts": {
+            "twitter": seo.social_posts.twitter,
+            "linkedin": seo.social_posts.linkedin,
+            "instagram": seo.social_posts.instagram,
+        },
+        "thumbnail_ideas": seo.thumbnail_ideas,
+        "niche_analysis": {
+            "saturation_score": seo.niche_analysis.saturation_score,
+            "competition_level": seo.niche_analysis.competition_level,
+            "recommendation": seo.niche_analysis.recommendation,
+        },
+        "contrarian_titles": seo.contrarian_titles,
+    }
+
+    # ── 7. Persist to ChromaDB (Memory/History) ─────────────────────────────
+    try:
+        from src.rag_store import persist_generation
+        persist_generation(
+            topic=topic,
+            seo_bundle=metadata,
+            content_type=content_type,
+            language=output_language,
+        )
+    except Exception as e:
+        logger.warning(f"Metadata persistence failed in linear path: {e}")
+
+    logger.info("Linear SEO generation complete.")
+    return metadata
+
     # Normalize social_posts
     sp = seo.social_posts
     if hasattr(sp, "twitter"):

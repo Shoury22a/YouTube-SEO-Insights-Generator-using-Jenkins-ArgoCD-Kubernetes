@@ -61,13 +61,14 @@ if total == 0:
 
 # ── Retrieve all stored topics ────────────────────────────────────────────
 st.markdown("## 🕐 Recent Generations")
-st.caption("Most semantically recent topics retrieved from ChromaDB.")
+st.caption("Historical topics listed by recency from ChromaDB.")
 
-# Use a broad query to retrieve all stored docs
-all_docs = retrieve_similar("youtube video seo metadata", k=50)
+# Use the new robust listing instead of semantic search
+from src.rag_store import list_all_generations
+all_docs = list_all_generations(limit=50)
 
 if not all_docs:
-    st.warning("Could not retrieve history from ChromaDB.")
+    st.warning("No generations found in history yet.")
     st.stop()
 
 # ── Recent topics timeline ────────────────────────────────────────────────

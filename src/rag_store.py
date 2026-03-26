@@ -53,16 +53,13 @@ def _get_embeddings():
 def _get_vectorstore():
     """
     Lazily initialize the ChromaDB vector store.
-
-    Uses a local persistent directory so data survives app restarts.
-    In production (K8s), this would connect to a ChromaDB StatefulSet instead.
     """
     global _vectorstore
     if _vectorstore is None:
         from langchain_chroma import Chroma
-
-        persist_dir = os.path.join(os.path.dirname(__file__), "..", "chroma_db")
-        persist_dir = os.path.abspath(persist_dir)
+        # Root path of the project
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        persist_dir = os.path.join(root_dir, "chroma_db")
 
         _vectorstore = Chroma(
             collection_name="seo_generations",
@@ -204,14 +201,49 @@ def retrieve_similar(
         return []
 
 
+def list_all_generations(limit: int = 50) -> list[dict]:
+    """
+    List ALL stored generations from ChromaDB sorted by most recent (using internal logic).
+    Bypasses semantic search filters for the history page dashboard.
+    """
+    try:
+        store = _get_vectorstore()
+        collection = store._collection
+        
+        # Get all documents (limited)
+        results = collection.get(limit=limit)
+        
+        if not results or not results['documents']:
+            return []
+            
+        generations = []
+        for i in range(len(results['documents'])):
+            metadata = results['metadatas'][i]
+            generations.append({
+                "topic": metadata.get("topic", "Unknown"),
+                "titles": metadata.get("titles", ""),
+                "content_type": metadata.get("content_type", "Long-Form Video"),
+                "language": metadata.get("language", "English"),
+                "content": results['documents'][i],
+                "score": 1.0  # Dummy score for sorting consistency
+            })
+            
+        # Reverse to show newest at top (Chroma adds to end)
+        return generations[::-1]
+        
+    except Exception as e:
+        logger.error(f"Failed to list generations from ChromaDB: {e}")
+        return []
+
+
 def get_store_stats() -> dict:
     """
     Returns basic stats about the vector store (for UI display).
     """
     try:
+        from streamlit import session_state
         store = _get_vectorstore()
-        collection = store._collection
-        count = collection.count()
+        count = store._collection.count()
         return {"total_documents": count, "status": "connected"}
     except Exception as e:
         logger.warning(f"Could not get store stats: {e}")
