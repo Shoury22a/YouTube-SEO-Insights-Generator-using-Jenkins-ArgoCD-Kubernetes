@@ -16,6 +16,7 @@ venv/
 env/
 jenkins_home/
 temp_test/
+chroma_db/
 
 # ──── Logs ────
 logs/

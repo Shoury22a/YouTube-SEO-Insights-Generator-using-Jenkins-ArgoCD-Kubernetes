@@ -497,3 +497,100 @@ def generate_seo_metadata(
 
     logger.info("SEO metadata generation complete.")
     return data
+
+
+# ---------------------------------------------------------------------------
+# Agentic API — Full LangGraph Pipeline (Researcher → Critic → Refiner)
+# ---------------------------------------------------------------------------
+
+def generate_seo_metadata_agentic(
+    topic: str,
+    audience: str,
+    content_type: str = "Long-Form Video",
+    output_language: str = "English",
+    transcript: Optional[str] = None,
+    visual_description: Optional[str] = None,
+    chapter_notes: Optional[str] = None,
+    competitor_context: Optional[str] = None,
+) -> dict:
+    """
+    Enhanced SEO generation using the full LangGraph Agent pipeline.
+
+    This wraps the existing generate_seo_metadata() inside a multi-step
+    agentic workflow that adds:
+      - RAG retrieval (past successes from ChromaDB)
+      - Web search for trending topics
+      - Automated quality critique (5 benchmarks)
+      - Targeted refinement loop (max 2 retries)
+      - Persistence to vector store for future use
+
+    Returns:
+        dict with keys:
+          - All standard SEO fields (titles, description, tags, etc.)
+          - _agent_log: list of step descriptions
+          - _agent_retries: number of critique-refine loops
+          - _agent_elapsed: total time in seconds
+          - _rag_count: number of documents retrieved from memory
+    """
+    # Pre-process transcript (same as the linear version)
+    transcript_text = (transcript or "").strip()
+    if transcript_text and _count_words(transcript_text) > MAX_TRANSCRIPT_WORDS:
+        transcript_text = _summarise_transcript(transcript_text)
+    elif transcript_text:
+        transcript_text = transcript_text[:MAX_TRANSCRIPT_CHARS]
+
+    try:
+        from src.agent import run_seo_agent
+        from src.metrics import record_generation
+
+        result = run_seo_agent(
+            topic=topic,
+            audience=audience,
+            content_type=content_type,
+            output_language=output_language,
+            transcript=transcript_text,
+            visual_description=visual_description or "",
+            chapter_notes=chapter_notes or "",
+            competitor_context=competitor_context or "",
+        )
+
+        metadata = result.get("metadata", {})
+
+        # Record Prometheus metrics
+        try:
+            record_generation(
+                elapsed_seconds=result.get("elapsed_seconds", 0),
+                retry_count=result.get("retry_count", 0),
+                retrieved_count=result.get("retrieved_count", 0),
+            )
+        except Exception as e:
+            logger.warning(f"Metrics recording failed: {e}")
+
+        # Attach agent telemetry to the output
+        metadata["_agent_log"] = result.get("step_log", [])
+        metadata["_agent_retries"] = result.get("retry_count", 0)
+        metadata["_agent_elapsed"] = result.get("elapsed_seconds", 0)
+        metadata["_rag_count"] = result.get("retrieved_count", 0)
+
+        logger.info("Agentic SEO generation complete.")
+        return metadata
+
+    except Exception as e:
+        logger.warning(f"Agent pipeline failed: {e}. Falling back to linear generation.")
+        # Graceful fallback: if the agent crashes, use the original linear pipeline
+        result = generate_seo_metadata(
+            topic=topic,
+            audience=audience,
+            content_type=content_type,
+            output_language=output_language,
+            transcript=transcript_text,
+            visual_description=visual_description,
+            chapter_notes=chapter_notes,
+            competitor_context=competitor_context,
+        )
+        result["_agent_log"] = ["⚠️ Agent unavailable. Used linear generation as fallback."]
+        result["_agent_retries"] = 0
+        result["_agent_elapsed"] = 0
+        result["_rag_count"] = 0
+        return result
+

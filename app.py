@@ -7,7 +7,9 @@ import base64
 import streamlit as st
 from src.logger import get_logger
 from src.extractor import extract_video_metadata, compute_niche_saturation, compute_contrarian_score
-from src.ai_model import generate_seo_metadata, check_api_connection, MAX_TRANSCRIPT_CHARS
+from src.ai_model import generate_seo_metadata, generate_seo_metadata_agentic, check_api_connection, MAX_TRANSCRIPT_CHARS
+from src.title_scorer import score_title, compute_report_card
+from src.pdf_exporter import build_pdf
 from src.exception import APIException, ValidationException, SEOAppException
 
 logger = get_logger(__name__)
@@ -29,233 +31,439 @@ if "theme_mode" not in st.session_state:
     st.session_state["theme_mode"] = "Dark"
 
 def inject_custom_css(theme: str):
-    """Injects premium Light/Dark mode CSS based on selection."""
+    """Injects premium, vibrant Light/Dark mode CSS."""
     is_dark = theme == "Dark"
-    
-    # Color Variables
-    bg_main = "#0a0a12" if is_dark else "#f8f9fc"
-    text_main = "#f0f0f0" if is_dark else "#1e1e2d"
-    sidebar_bg = "rgba(15, 15, 26, 0.8)" if is_dark else "rgba(255, 255, 255, 0.98)"
-    glass_bg = "rgba(255, 255, 255, 0.03)" if is_dark else "rgba(0, 0, 0, 0.02)"
-    border_clr = "rgba(255, 255, 255, 0.07)" if is_dark else "rgba(0, 0, 0, 0.08)"
-    input_bg = "rgba(255, 255, 255, 0.05)" if is_dark else "#ffffff"
-    hero_grad = "linear-gradient(135deg, #1a0a2e 0%, #0f0f1a 100%)" if is_dark else "linear-gradient(135deg, #ffffff 0%, #f7f9fc 100%)"
-    hero_txt = "linear-gradient(135deg, #ffffff 0%, #d4d4d4 100%)" if is_dark else "linear-gradient(135deg, #1e1e2d 0%, #2c3e50 100%)"
-    shadow_clr = "rgba(255, 0, 80, 0.35)" if is_dark else "rgba(230, 0, 76, 0.2)"
-    
+
+    if is_dark:
+        bg_main         = "#07070f"
+        bg_surface      = "#0e0e1c"
+        text_main       = "#eeeef5"
+        text_sub        = "rgba(238,238,245,0.55)"
+        sidebar_bg      = "rgba(10,10,20,0.92)"
+        glass_bg        = "rgba(255,255,255,0.035)"
+        glass_bg_hover  = "rgba(255,255,255,0.06)"
+        border_clr      = "rgba(255,255,255,0.08)"
+        border_accent   = "rgba(255,30,90,0.35)"
+        input_bg        = "rgba(255,255,255,0.06)"
+        input_focus_shadow = "rgba(255,30,90,0.18)"
+        hero_bg         = "linear-gradient(135deg, #130520 0%, #0a0a1a 60%, #150826 100%)"
+        hero_txt        = "linear-gradient(135deg, #ffffff 0%, #c084fc 100%)"
+        hero_sub_clr    = "rgba(230,220,255,0.65)"
+        badge_bg        = "linear-gradient(90deg, rgba(255,30,90,0.25), rgba(160,0,255,0.25))"
+        badge_border    = "rgba(255,30,90,0.5)"
+        badge_clr       = "#ff6baa"
+        chip_bg         = "rgba(255,255,255,0.04)"
+        tag_bg          = "rgba(255,30,90,0.1)"
+        tag_border      = "rgba(255,30,90,0.3)"
+        tag_clr         = "#ff80aa"
+        btn_shadow      = "rgba(255,30,90,0.45)"
+        btn_hover_shadow= "rgba(255,30,90,0.65)"
+        orbs            = """
+            radial-gradient(ellipse at 8% 15%, rgba(255,30,90,0.12) 0%, transparent 45%),
+            radial-gradient(ellipse at 92% 85%, rgba(140,0,255,0.12) 0%, transparent 45%),
+            radial-gradient(ellipse at 50% 100%, rgba(0,180,255,0.06) 0%, transparent 40%);
+        """
+        expander_glow   = "0 0 0 1px rgba(255,30,90,0.0)"
+        expander_glow_h = "0 4px 28px rgba(255,30,90,0.12)"
+        code_bg         = "rgba(255,255,255,0.04)"
+        success_bg      = "rgba(0,220,130,0.1)"
+        metric_bg       = "rgba(255,255,255,0.04)"
+    else:
+        bg_main         = "#f4f3ff"
+        bg_surface      = "#ffffff"
+        text_main       = "#1a1830"
+        text_sub        = "rgba(26,24,48,0.55)"
+        sidebar_bg      = "rgba(255,255,255,0.97)"
+        glass_bg        = "rgba(255,255,255,0.8)"
+        glass_bg_hover  = "rgba(255,255,255,0.95)"
+        border_clr      = "rgba(26,24,48,0.09)"
+        border_accent   = "rgba(99,53,220,0.3)"
+        input_bg        = "#ffffff"
+        input_focus_shadow = "rgba(99,53,220,0.15)"
+        hero_bg         = "linear-gradient(135deg, #ede9fe 0%, #fdf4ff 50%, #fce7f3 100%)"
+        hero_txt        = "linear-gradient(135deg, #1a1830 0%, #6335dc 100%)"
+        hero_sub_clr    = "rgba(26,24,48,0.7)"
+        badge_bg        = "linear-gradient(90deg, rgba(99,53,220,0.12), rgba(219,39,119,0.12))"
+        badge_border    = "rgba(99,53,220,0.4)"
+        badge_clr       = "#6335dc"
+        chip_bg         = "rgba(99,53,220,0.06)"
+        tag_bg          = "rgba(99,53,220,0.08)"
+        tag_border      = "rgba(99,53,220,0.25)"
+        tag_clr         = "#6335dc"
+        btn_shadow      = "rgba(99,53,220,0.35)"
+        btn_hover_shadow= "rgba(99,53,220,0.55)"
+        orbs            = ""
+        expander_glow   = "0 2px 12px rgba(99,53,220,0.05)"
+        expander_glow_h = "0 6px 32px rgba(99,53,220,0.14)"
+        code_bg         = "rgba(99,53,220,0.04)"
+        success_bg      = "rgba(0,180,100,0.08)"
+        metric_bg       = "rgba(99,53,220,0.04)"
+
+    # Shared gradient — adapts accent to theme
+    grad = "linear-gradient(90deg, #ff1e5a 0%, #cc00ff 100%)" if is_dark else \
+           "linear-gradient(90deg, #6335dc 0%, #db2777 100%)"
+
     st.markdown(
         f"""
         <style>
-            @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
 
-            /* Adaptive Base Styles */
-            html, body, [class*="css"] {{ 
-                font-family: 'Outfit', sans-serif; 
-                color: {text_main};
+            /* ── Keyframe Animations ── */
+            @keyframes shimmer {{
+                0%   {{ background-position: -200% center; }}
+                100% {{ background-position: 200% center; }}
+            }}
+            @keyframes pulse-glow {{
+                0%, 100% {{ box-shadow: 0 0 8px rgba(255,30,90,0.3); }}
+                50%       {{ box-shadow: 0 0 22px rgba(255,30,90,0.65); }}
+            }}
+            @keyframes float {{
+                0%, 100% {{ transform: translateY(0px); }}
+                50%       {{ transform: translateY(-4px); }}
+            }}
+            @keyframes fadeSlideIn {{
+                from {{ opacity: 0; transform: translateY(12px); }}
+                to   {{ opacity: 1; transform: translateY(0); }}
+            }}
+            @keyframes scoreBar {{
+                from {{ width: 0; }}
             }}
 
+            /* ── Base ── */
+            html, body, [class*="css"] {{
+                font-family: 'Outfit', sans-serif;
+                color: {text_main};
+            }}
             .stApp {{
                 background: {bg_main};
-                { f'background-image: radial-gradient(ellipse at 10% 20%, rgba(255, 0, 80, 0.07) 0%, transparent 50%), radial-gradient(ellipse at 90% 80%, rgba(120, 0, 255, 0.07) 0%, transparent 50%);' if is_dark else '' }
+                {"background-image:" + orbs if orbs.strip() else ""}
                 background-attachment: fixed;
             }}
 
-            /* Glassmorphism Sidebar */
+            /* ── Sidebar ── */
             section[data-testid="stSidebar"] {{
                 background: {sidebar_bg} !important;
-                backdrop-filter: blur(20px);
+                backdrop-filter: blur(24px);
                 border-right: 1px solid {border_clr};
+                box-shadow: 4px 0 40px rgba(0,0,0,{"0.3" if is_dark else "0.06"});
+            }}
+            section[data-testid="stSidebar"] h2 {{
+                font-size: 0.78rem !important;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+                opacity: 0.5;
+                font-weight: 700;
+                margin-bottom: 6px;
             }}
 
-            /* Adaptive Hero Banner */
+            /* ── Hero Banner ── */
             .hero-banner {{
                 position: relative;
-                background: {hero_grad};
-                border-radius: 20px;
-                padding: 32px 40px;
+                background: {hero_bg};
+                border-radius: 24px;
+                padding: 36px 44px;
                 margin-bottom: 28px;
-                border: 1px solid {"rgba(255, 0, 80, 0.2)" if is_dark else "rgba(0, 0, 0, 0.06)"};
+                border: 1px solid {border_accent};
                 overflow: hidden;
-                box-shadow: { "none" if is_dark else "0 4px 20px rgba(0,0,0,0.03)" };
+                animation: fadeSlideIn 0.5s ease;
+                box-shadow: {expander_glow_h};
+            }}
+            .hero-banner::before {{
+                content: '';
+                position: absolute;
+                top: -60px; right: -60px;
+                width: 280px; height: 280px;
+                background: {"radial-gradient(circle, rgba(255,30,90,0.15) 0%, transparent 65%)" if is_dark else "radial-gradient(circle, rgba(99,53,220,0.1) 0%, transparent 65%)"};
+                border-radius: 50%;
+                pointer-events: none;
             }}
             .hero-brand {{
                 display: flex;
                 align-items: center;
                 gap: 20px;
-                margin-bottom: 16px;
+                margin-bottom: 14px;
             }}
-            .hero-brand img {{ 
-                width: 64px !important; 
-                height: 64px !important; 
-                border-radius: 16px;
-                box-shadow: 0 0 30px rgba(255, 0, 80, 0.4);
+            .hero-brand img {{
+                width: 64px !important;
+                height: 64px !important;
+                border-radius: 18px;
+                box-shadow: 0 0 0 2px {border_accent}, 0 0 30px {"rgba(255,30,90,0.4)" if is_dark else "rgba(99,53,220,0.25)"};
+                animation: float 3s ease-in-out infinite;
             }}
             .hero-badge {{
                 display: inline-block;
-                background: linear-gradient(90deg, rgba(255,0,80,0.2), rgba(204,0,255,0.2));
-                border: 1px solid rgba(255, 0, 80, 0.4);
+                background: {badge_bg};
+                border: 1px solid {badge_border};
                 border-radius: 30px;
-                padding: 4px 14px;
-                font-size: 0.75rem;
-                font-weight: 600;
-                color: {"#ff6b9d" if is_dark else "#e6004c"};
-                letter-spacing: 1px;
+                padding: 4px 16px;
+                font-size: 0.72rem;
+                font-weight: 700;
+                color: {badge_clr};
+                letter-spacing: 1.5px;
                 text-transform: uppercase;
                 margin-bottom: 10px;
+                background-size: 200% auto;
+                animation: shimmer 3s linear infinite;
             }}
-            .hero-banner h1 {{ 
-                font-size: 2.6rem; 
-                margin: 0; 
-                font-weight: 800; 
-                letter-spacing: -1.5px;
-                line-height: 1.1;
+            .hero-banner h1 {{
+                font-size: 2.8rem;
+                margin: 0;
+                font-weight: 900;
+                letter-spacing: -2px;
+                line-height: 1.05;
                 background: {hero_txt};
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
                 background-clip: text;
             }}
-            .hero-banner .hero-sub {{ 
-                color: {"rgba(255,255,255,0.6)" if is_dark else "rgba(30,30,45,0.8)"}; 
-                margin-top: 8px; 
-                font-size: 1.05rem; 
+            .hero-sub {{
+                color: {hero_sub_clr};
+                margin-top: 10px;
+                font-size: 1.05rem;
                 font-weight: 400;
-                max-width: 650px;
+                max-width: 660px;
+                line-height: 1.6;
             }}
 
-            /* Stats & Chips */
+            /* ── Stat Chips ── */
             .hero-stats {{
                 display: flex;
-                gap: 24px;
+                gap: 14px;
                 margin-top: 28px;
                 flex-wrap: wrap;
             }}
             .stat-chip {{
-                background: {"rgba(255,255,255,0.05)" if is_dark else "rgba(0,0,0,0.03)"};
+                background: {chip_bg};
                 border: 1px solid {border_clr};
-                border-radius: 12px;
+                border-radius: 14px;
                 padding: 10px 20px;
-                font-size: 0.85rem;
+                font-size: 0.82rem;
+                font-weight: 600;
+                color: {text_sub};
+                transition: all 0.25s ease;
+                cursor: default;
             }}
-            .stat-chip span {{ 
-                display: block; 
-                font-size: 1.15rem; 
-                font-weight: 700;
-                background: linear-gradient(90deg, #ff0050, #cc00ff);
+            .stat-chip:hover {{
+                border-color: {border_accent};
+                transform: translateY(-2px);
+                box-shadow: {expander_glow_h};
+            }}
+            .stat-chip span {{
+                display: block;
+                font-size: 1.15rem;
+                font-weight: 800;
+                background: {grad};
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
                 background-clip: text;
+                margin-bottom: 1px;
             }}
-            /* Specific text for chips to ensure contrast */
-            .stat-chip {{ color: {"#99a" if is_dark else "#3a3a4a"}; font-weight: 600; }}
 
-            /* Glass Cards / Expanders */
+            /* ── Expander Cards ── */
             .stExpander {{
                 background: {glass_bg} !important;
-                border-radius: 16px !important;
+                border-radius: 18px !important;
                 border: 1px solid {border_clr} !important;
-                margin-bottom: 12px;
+                margin-bottom: 14px;
                 transition: all 0.3s ease;
+                box-shadow: {expander_glow};
+                animation: fadeSlideIn 0.4s ease;
+                backdrop-filter: blur(10px);
             }}
             .stExpander:hover {{
-                border-color: rgba(255, 0, 80, 0.3) !important;
-                box-shadow: 0 0 20px rgba(255, 0, 80, 0.08);
+                border-color: {border_accent} !important;
+                box-shadow: {expander_glow_h} !important;
+                background: {glass_bg_hover} !important;
             }}
-            .stExpander summary p {{ 
-                color: {text_main} !important; 
-                font-weight: 600 !important;
+            .stExpander summary p {{
+                color: {text_main} !important;
+                font-weight: 700 !important;
+                font-size: 0.95rem !important;
+                letter-spacing: 0.2px;
             }}
 
-            /* Generate Button */
+            /* ── Generate Button ── */
             .stButton > button {{
-                background: linear-gradient(90deg, #ff0050 0%, #cc00ff 100%) !important;
+                background: {grad} !important;
                 color: white !important;
                 border: none !important;
-                border-radius: 14px !important;
+                border-radius: 16px !important;
                 font-family: 'Outfit', sans-serif !important;
-                font-weight: 700 !important;
+                font-weight: 800 !important;
                 font-size: 1.05rem !important;
                 padding: 18px 0 !important;
                 width: 100% !important;
                 letter-spacing: 0.5px;
-                box-shadow: 0 8px 30px {shadow_clr} !important;
-                transition: all 0.3s ease !important;
+                box-shadow: 0 8px 32px {btn_shadow} !important;
+                transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1) !important;
+                position: relative;
+                overflow: hidden;
             }}
             .stButton > button:hover {{
-                box-shadow: 0 12px 40px rgba(255, 0, 80, 0.55) !important;
-                transform: translateY(-2px);
+                box-shadow: 0 14px 44px {btn_hover_shadow} !important;
+                transform: translateY(-3px) scale(1.01) !important;
+            }}
+            .stButton > button:active {{
+                transform: translateY(0) scale(0.99) !important;
             }}
 
-            /* Input Fields */
-            .stTextArea textarea, .stTextInput input, div[data-baseweb="select"] > div {{
-                background: {input_bg} !important;
-                border: 1px solid {border_clr} !important;
+            /* ── Download Button ── */
+            .stDownloadButton > button {{
+                background: {glass_bg} !important;
+                color: {text_main} !important;
+                border: 1px solid {border_accent} !important;
                 border-radius: 12px !important;
+                font-weight: 600 !important;
+                transition: all 0.25s ease !important;
+            }}
+            .stDownloadButton > button:hover {{
+                background: {grad} !important;
+                color: white !important;
+                transform: translateY(-2px) !important;
+            }}
+
+            /* ── Input Fields ── */
+            .stTextArea textarea, .stTextInput input {{
+                background: {input_bg} !important;
+                border: 1.5px solid {border_clr} !important;
+                border-radius: 14px !important;
                 color: {text_main} !important;
                 -webkit-text-fill-color: {text_main} !important;
+                font-family: 'Outfit', sans-serif !important;
+                font-size: 0.95rem !important;
+                transition: all 0.2s ease !important;
+                padding: 10px 14px !important;
             }}
             .stTextArea textarea:focus, .stTextInput input:focus {{
-                border-color: rgba(255, 0, 80, 0.5) !important;
-                box-shadow: 0 0 0 3px rgba(255, 0, 80, 0.1) !important;
+                border-color: {border_accent} !important;
+                box-shadow: 0 0 0 4px {input_focus_shadow} !important;
+                outline: none !important;
+            }}
+            div[data-baseweb="select"] > div {{
+                background: {input_bg} !important;
+                border: 1.5px solid {border_clr} !important;
+                border-radius: 12px !important;
+                color: {text_main} !important;
             }}
             ::placeholder {{
-                color: {"rgba(255,255,255,0.3)" if is_dark else "rgba(0,0,0,0.45)"} !important;
+                color: {text_sub} !important;
                 font-style: italic;
             }}
 
-            /* Tag Pills */
+            /* ── Tags ── */
             .tag-pill {{
                 display: inline-block;
-                background: rgba(255, 0, 80, 0.08);
-                border: 1px solid rgba(255, 0, 80, 0.25);
-                color: {"#ff6b9d" if is_dark else "#e6004c"};
+                background: {tag_bg};
+                border: 1px solid {tag_border};
+                color: {tag_clr};
                 border-radius: 30px;
                 padding: 5px 16px;
                 margin: 4px;
                 font-size: 0.83rem;
                 font-weight: 600;
                 transition: all 0.2s ease;
+                cursor: default;
             }}
             .tag-pill:hover {{
-                background: #ff0050;
-                color: #fff;
-                border-color: #ff0050;
-                box-shadow: 0 0 12px rgba(255, 0, 80, 0.4);
+                background: {grad};
+                color: #fff !important;
+                border-color: transparent;
+                box-shadow: 0 4px 16px {btn_shadow};
+                transform: translateY(-1px);
             }}
 
-            /* Theme specific tweaks */
-            hr {{ border-color: {border_clr} !important; }}
-            .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown span {{ 
-                color: {text_main} !important; 
+            /* ── Metrics / Info ── */
+            [data-testid="stMetric"] {{
+                background: {metric_bg};
+                border-radius: 14px;
+                padding: 14px 18px;
+                border: 1px solid {border_clr};
+                transition: all 0.25s ease;
             }}
-            
-            /* Fix invisible widget labels */
-            [data-testid="stWidgetLabel"] p, [data-testid="stRadio"] label p, .stAlert p {{
-                color: {text_main} !important;
+            [data-testid="stMetric"]:hover {{
+                border-color: {border_accent};
+                box-shadow: {expander_glow_h};
+            }}
+            [data-testid="stMetricLabel"] {{
+                color: {text_sub} !important;
+                font-size: 0.78rem !important;
                 font-weight: 600 !important;
+                text-transform: uppercase;
+                letter-spacing: 1px;
             }}
-            
-            /* Sidebar specific text */
-            section[data-testid="stSidebar"] .stMarkdown p, 
-            section[data-testid="stSidebar"] .stMarkdown h1, 
+            [data-testid="stMetricValue"] {{
+                color: {text_main} !important;
+                font-weight: 800 !important;
+                font-size: 1.5rem !important;
+            }}
+
+            /* ── Success / Info / Warning Alerts ── */
+            .stSuccess {{
+                background: {success_bg} !important;
+                border: 1px solid rgba(0,200,120,0.3) !important;
+                border-radius: 14px !important;
+                animation: fadeSlideIn 0.3s ease;
+            }}
+            .stInfo {{
+                background: {"rgba(30,100,255,0.08)" if is_dark else "rgba(99,53,220,0.06)"} !important;
+                border: 1px solid {"rgba(30,100,255,0.2)" if is_dark else "rgba(99,53,220,0.2)"} !important;
+                border-radius: 14px !important;
+            }}
+
+            /* ── Code blocks ── */
+            .stCodeBlock pre, .stCode code {{
+                background: {code_bg} !important;
+                border-radius: 12px !important;
+                border: 1px solid {border_clr} !important;
+                font-size: 0.9rem !important;
+            }}
+
+            /* ── Progress ── */
+            .stProgress > div > div > div {{
+                background: {grad} !important;
+                border-radius: 4px;
+            }}
+
+            /* ── Tabs ── */
+            .stTabs [data-baseweb="tab"] {{
+                font-family: 'Outfit', sans-serif !important;
+                font-weight: 600 !important;
+                color: {text_sub} !important;
+            }}
+            .stTabs [aria-selected="true"] {{
+                color: {text_main} !important;
+                border-bottom: 2px solid {"#ff1e5a" if is_dark else "#6335dc"} !important;
+            }}
+
+            /* ── Dividers ── */
+            hr {{ border-color: {border_clr} !important; margin: 24px 0; }}
+
+            /* ── Widget labels ── */
+            [data-testid="stWidgetLabel"] p,
+            [data-testid="stRadio"] label p,
+            .stAlert p,
+            .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {{
+                color: {text_main} !important;
+            }}
+            section[data-testid="stSidebar"] .stMarkdown p,
+            section[data-testid="stSidebar"] .stMarkdown h1,
             section[data-testid="stSidebar"] .stMarkdown h2 {{
                 color: {text_main} !important;
             }}
-            
-            /* Sidebar items */
             .sidebar-brand-name {{
-                font-weight: 700;
+                font-weight: 800;
                 font-size: 1.1rem;
-                background: linear-gradient(90deg, #ff0050, #cc00ff);
+                background: {grad};
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
                 background-clip: text;
             }}
 
-            /* Mobile Responsive */
+            /* ── Mobile ── */
             @media (max-width: 768px) {{
-                .hero-banner h1 {{ font-size: 2.4rem; }}
-                .hero-stats {{ gap: 12px; }}
-                [data-testid="column"] {{ width: 100% !important; flex: 1 1 100% !important; }}
+                .hero-banner {{ padding: 24px 20px; }}
+                .hero-banner h1 {{ font-size: 2rem; }}
+                .hero-stats {{ gap: 8px; }}
             }}
         </style>
         """,
@@ -263,6 +471,7 @@ def inject_custom_css(theme: str):
     )
 
 inject_custom_css(st.session_state.theme_mode)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Hero Banner — TubeRank AI
@@ -292,12 +501,12 @@ st.markdown(
             Generate viral titles, SEO tags, timestamps, social posts &amp; thumbnail ideas —
             in seconds. Built for creators who want to rank.
         </p>
-        <div class="hero-stats">
-            <div class="stat-chip"><span>10+</span>Languages</div>
-            <div class="stat-chip"><span>AI</span>Competitor Intel</div>
-            <div class="stat-chip"><span>∞</span>Hinglish Support</div>
-            <div class="stat-chip"><span>6</span>Output Sections</div>
-        </div>
+            <div class="hero-stats">
+                <div class="stat-chip"><span>10+</span>Languages</div>
+                <div class="stat-chip"><span>AI</span>Competitor Intel</div>
+                <div class="stat-chip"><span>6</span>Agent Nodes</div>
+                <div class="stat-chip"><span>∞</span>Self-Correcting</div>
+            </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -339,12 +548,63 @@ with st.sidebar:
     )
 
     st.markdown("---")
+    st.markdown("## 🤖 AI Mode")
+    use_agent = st.toggle(
+        "⚡ Agentic AI Mode",
+        value=True,
+        help="Enable the full LangGraph agent pipeline with RAG memory, web search, self-critique, and auto-refinement. Disable for the faster linear generation.",
+    )
+
+    st.markdown("---")
     st.markdown("## 🔗 Competitor Reference (Optional)")
     competitor_url = st.text_input(
         "YouTube Video URL",
         placeholder="https://www.youtube.com/watch?v=...",
         help="We'll scrape metadata to give the AI competitive context.",
     )
+
+    # ── Title Tester Widget ───────────────────────────────────────
+    st.markdown("---")
+    st.markdown("## 🔬 Title Tester")
+    st.caption("Instantly score any title — no generation needed.")
+    test_title_input = st.text_input(
+        "Type any title to analyse:",
+        placeholder="e.g. 7 Python Mistakes Nobody Warns You About",
+        key="sidebar_title_tester",
+        label_visibility="collapsed",
+    )
+    test_topic_input = st.text_input(
+        "Topic keyword (for SEO check):",
+        placeholder="e.g. Python mistakes",
+        key="sidebar_topic_tester",
+        label_visibility="collapsed",
+    )
+    if test_title_input.strip():
+        ts = score_title(
+            test_title_input.strip(),
+            test_topic_input.strip() or test_title_input.strip(),
+            content_type,
+        )
+        ctr_c = "#00e676" if ts["ctr_score"] >= 7 else "#ffaa00" if ts["ctr_score"] >= 4 else "#ff4444"
+        seo_c = "#00e676" if ts["seo_score"] >= 7 else "#ffaa00" if ts["seo_score"] >= 4 else "#ff4444"
+        ch_c  = {"green": "#00e676", "amber": "#ffaa00", "red": "#ff4444"}[ts["char_status"]]
+        st.markdown(
+            f"""
+            <div style='background:rgba(255,255,255,0.04);border-radius:8px;
+                        padding:10px 12px;font-size:0.8rem;margin-top:4px'>
+              <div style='margin-bottom:6px'>
+                <span style='color:{ctr_c};font-weight:700'>📊 CTR {ts['ctr_score']}/10</span>
+                &nbsp;&nbsp;
+                <span style='color:{seo_c};font-weight:700'>🔑 SEO {ts['seo_score']}/10</span>
+                &nbsp;&nbsp;
+                <span style='color:{ch_c};font-weight:700'>📏 {ts['char_count']} chars</span>
+              </div>
+              <div style='margin-bottom:4px'>{ts['hook_emoji']} <strong>{ts['hook_type']}</strong></div>
+              <div style='opacity:0.6;font-size:0.73rem'>💡 {ts['feedback']}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 
@@ -501,17 +761,56 @@ if generate_clicked:
 
     # ── 2. AI generation ─────────────────────────────────────────────────────
     try:
-        with st.spinner("🤖 Gemini 2.0 Flash is crafting your SEO package... this may take 15-30 seconds"):
-            result = _cached_generate(
-                topic=topic.strip(),
-                audience=audience.strip(),
-                content_type=content_type,
-                output_language=output_language,
-                transcript=transcript.strip(),
-                visual_description=visual_description.strip() if use_visual_desc else "",
-                chapter_notes=chapter_notes.strip(),
-                competitor_context=competitor_context,
-            )
+        if use_agent:
+            # ── Agentic Mode: LangGraph pipeline ─────────────────────────
+            with st.status("🤖 **Agent is working...**", expanded=True) as status:
+                st.write("🔍 **Researcher:** Searching memory & web for context...")
+                result = generate_seo_metadata_agentic(
+                    topic=topic.strip(),
+                    audience=audience.strip(),
+                    content_type=content_type,
+                    output_language=output_language,
+                    transcript=transcript.strip(),
+                    visual_description=visual_description.strip() if use_visual_desc else "",
+                    chapter_notes=chapter_notes.strip(),
+                    competitor_context=competitor_context,
+                )
+                # Show the agent's step log live
+                agent_log = result.pop("_agent_log", [])
+                agent_retries = result.pop("_agent_retries", 0)
+                agent_elapsed = result.pop("_agent_elapsed", 0)
+                rag_count = result.pop("_rag_count", 0)
+
+                for step in agent_log:
+                    st.write(step)
+
+                status.update(
+                    label=f"✅ Agent complete in {agent_elapsed}s | "
+                          f"{agent_retries} refinements | {rag_count} docs from memory",
+                    state="complete",
+                    expanded=False,
+                )
+
+            st.session_state["agent_log"] = agent_log
+            st.session_state["agent_retries"] = agent_retries
+            st.session_state["agent_elapsed"] = agent_elapsed
+            st.session_state["rag_count"] = rag_count
+        else:
+            # ── Linear Mode: Original pipeline ───────────────────────────
+            with st.spinner("🤖 Gemini is crafting your SEO package... this may take 15-30 seconds"):
+                result = _cached_generate(
+                    topic=topic.strip(),
+                    audience=audience.strip(),
+                    content_type=content_type,
+                    output_language=output_language,
+                    transcript=transcript.strip(),
+                    visual_description=visual_description.strip() if use_visual_desc else "",
+                    chapter_notes=chapter_notes.strip(),
+                    competitor_context=competitor_context,
+                )
+            st.session_state["agent_log"] = []
+            st.session_state["agent_retries"] = 0
+
         st.session_state["last_result"] = result
         st.session_state["last_content_type"] = content_type
         st.session_state["last_topic"] = topic.strip()
@@ -554,6 +853,107 @@ last_content_type = st.session_state.get("last_content_type", "Long-Form Video")
 if result:
     st.markdown("---")
     st.success("🎉 Your SEO package is ready! Use the expanders below to copy each section.", icon="✅")
+
+    # ── PDF Download ─────────────────────────────────────────────────────
+    try:
+        _pdf_topic = st.session_state.get("last_topic", topic.strip())
+        _report = compute_report_card(result, _pdf_topic, last_content_type)
+        _title_scores = [
+            score_title(t, _pdf_topic, last_content_type)
+            for t in result.get("titles", [])
+        ]
+        _pdf_bytes = build_pdf(
+            result=result,
+            topic=_pdf_topic,
+            content_type=last_content_type,
+            report_card=_report,
+            title_scores=_title_scores,
+        )
+        st.download_button(
+            label="📥 Download Full SEO Package (PDF)",
+            data=_pdf_bytes,
+            file_name=f"TubeRank_SEO_{_pdf_topic[:30].replace(' ','_')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    except Exception as _pdf_err:
+        logger.warning(f"PDF generation failed: {_pdf_err}")
+
+    # ── Agent Reasoning Log ─────────────────────────────────────────────────
+    agent_log = st.session_state.get("agent_log", [])
+    if agent_log:
+        retries = st.session_state.get("agent_retries", 0)
+        elapsed = st.session_state.get("agent_elapsed", 0)
+        rag_ct = st.session_state.get("rag_count", 0)
+        with st.expander(
+            f"🧠 Agent Reasoning — {retries} refinements, "
+            f"{rag_ct} docs from memory, {elapsed}s total",
+            expanded=False,
+        ):
+            for step in agent_log:
+                st.markdown(f"  {step}")
+
+    # ── SEO Report Card ─────────────────────────────────────────────────────
+    report = compute_report_card(
+        result=result,
+        topic=st.session_state.get("last_topic", ""),
+        content_type=last_content_type,
+    )
+    grade = report["grade"]
+    grade_color = (
+        "#00e676" if grade in ("A+", "A") else
+        "#ffaa00" if grade in ("B+", "B") else
+        "#ff4444"
+    )
+    with st.expander("📊 SEO Report Card", expanded=True):
+        st.markdown(
+            f"""
+            <div style='display:flex;align-items:center;gap:20px;margin-bottom:12px'>
+                <div style='text-align:center;background:rgba(255,255,255,0.05);
+                            border-radius:12px;padding:12px 20px;min-width:80px'>
+                    <div style='font-size:2.8rem;font-weight:900;color:{grade_color};line-height:1'>{grade}</div>
+                    <div style='font-size:0.7rem;opacity:0.5;margin-top:4px'>Overall Grade</div>
+                </div>
+                <div style='flex:1'>
+                    <div style='font-size:0.8rem;opacity:0.55;margin-bottom:6px'>
+                        Score: <strong>{report["overall_score"]}/10</strong>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        metrics = [
+            ("🏆 Title Strength", report["title_strength"], "Average CTR power across all titles", True),
+            ("🔑 Keyword Coverage", report["keyword_coverage"], "How many titles contain your core keyword", True),
+            ("📄 Description Hook", report["description_hook"], "Hook-word strength in opening sentences", True),
+            ("🏷️ Tag Diversity", report["tag_diversity"], "Unique tags vs total (higher = better)", True),
+            ("📏 Tag Budget Used", report["tag_fill"], "YouTube's 500-char tag limit utilisation", False),
+        ]
+        for label, val, tip, higher_better in metrics:
+            val_clamped = max(0.0, min(10.0, val))
+            bar_color = (
+                "#00e676" if val_clamped >= 7 else
+                "#ffaa00" if val_clamped >= 4 else
+                "#ff4444"
+            )
+            filled = int(val_clamped)
+            empty = 10 - filled
+            bar = (
+                f'<span style="color:{bar_color}">'
+                + "█" * filled
+                + f'</span><span style="opacity:0.2">'
+                + "█" * empty
+                + "</span>"
+            )
+            st.markdown(
+                f"<div style='margin-bottom:8px'>"
+                f"<span style='font-size:0.85rem'>{label}</span>"
+                f"<span style='float:right;font-size:0.8rem;color:{bar_color};font-weight:700'>{val_clamped:.1f}/10</span>"
+                f"<br><span style='font-family:monospace;font-size:0.9rem'>{bar}</span>"
+                f"<br><span style='font-size:0.72rem;opacity:0.5'>{tip}</span></div>",
+                unsafe_allow_html=True,
+            )
 
     # ── Feature 5: Niche Saturation Score (REAL DATA) ──────────────────────────
     niche = st.session_state.get("real_niche") or result.get("niche_analysis", {})
@@ -609,12 +1009,57 @@ if result:
                     for t in top_titles:
                         st.markdown(f"&nbsp;&nbsp;• {t}")
 
-    # ── Titles ────────────────────────────────────────────────────────────────
-    with st.expander("🏆 A/B Titles", expanded=True):
-        st.markdown("*Click the copy icon on any title to copy it to your clipboard.*")
-        for i, title in enumerate(result.get("titles", []), 1):
-            st.markdown(f"**Option {i}**")
-            st.code(title, language=None)
+    # ── A/B Title Analytics Dashboard ─────────────────────────────────────────
+    with st.expander("🏆 A/B Title Analytics Dashboard", expanded=True):
+        titles = result.get("titles", [])
+        topic_for_score = st.session_state.get("last_topic", "")
+        if not titles:
+            st.warning("No titles returned.")
+        else:
+            st.caption(
+                "Each title is scored on CTR potential and SEO keyword alignment. "
+                "Hook types identified using pattern matching on 80+ power words."
+            )
+            for i, title in enumerate(titles, 1):
+                s = score_title(title, topic_for_score, last_content_type)
+                ctr = s["ctr_score"]
+                seo = s["seo_score"]
+                ctr_color = "#00e676" if ctr >= 7 else "#ffaa00" if ctr >= 4 else "#ff4444"
+                seo_color = "#00e676" if seo >= 7 else "#ffaa00" if seo >= 4 else "#ff4444"
+                char_color = {"green": "#00e676", "amber": "#ffaa00", "red": "#ff4444"}[s["char_status"]]
+
+                st.markdown(
+                    f"<div style='background:rgba(255,255,255,0.04);border-radius:10px;"
+                    f"padding:14px 16px;margin-bottom:12px;border-left:3px solid {ctr_color}'>"
+                    f"<div style='font-size:0.75rem;opacity:0.5;margin-bottom:4px'>Option {i}</div>"
+                    f"<div style='font-size:1rem;font-weight:600;margin-bottom:10px'>{title}</div>"
+                    f"<div style='display:flex;gap:10px;flex-wrap:wrap;font-size:0.78rem'>"
+                    f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
+                    f"📊 CTR <strong style='color:{ctr_color}'>{ctr}/10</strong></span>"
+                    f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
+                    f"🔑 SEO <strong style='color:{seo_color}'>{seo}/10</strong></span>"
+                    f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
+                    f"📏 <strong style='color:{char_color}'>{s['char_count']} chars</strong></span>"
+                    f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
+                    f"{s['hook_emoji']} {s['hook_type']}</span>"
+                    + (
+                        f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
+                        f"🔢 Has number</span>" if s["has_number"] else ""
+                    )
+                    + (
+                        f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
+                        f"📌 Has brackets</span>" if s["has_brackets"] else ""
+                    )
+                    + f"</div>"
+                    + (
+                        f"<div style='margin-top:8px;font-size:0.73rem;opacity:0.5'>"
+                        f"Power words: {', '.join(s['power_words'])}</div>" if s["power_words"] else ""
+                    )
+                    + f"<div style='margin-top:6px;font-size:0.75rem;color:#aaa'>💡 {s['feedback']}</div>"
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+                st.code(title, language=None)
 
     # ── Feature 4: Contrarian Hook Generator (with real Divergence Scores) ──────
     contrarian = result.get("contrarian_titles", [])
@@ -707,7 +1152,68 @@ if result:
         with tab_ig:
             st.code(social.get("instagram", ""), language=None)
 
-    # ── Thumbnail Ideas ───────────────────────────────────────────────────────
-    with st.expander("🖼️ Thumbnail Ideas", expanded=True):
-        for i, idea in enumerate(result.get("thumbnail_ideas", []), 1):
-            st.markdown(f"**Concept {i}:** {idea}")
+    # ── Thumbnail Lab ─────────────────────────────────────────────────────────
+    with st.expander("🖼️ Thumbnail Lab", expanded=True):
+        st.markdown(
+            "*AI-generated thumbnail concepts for each psychological hook style. "
+            "Click **Generate Images** to create actual visual mockups using Gemini Imagen.*"
+        )
+        thumbnail_concepts = result.get("thumbnail_ideas", [])
+        if thumbnail_concepts:
+            st.markdown("**📋 AI Thumbnail Concepts (text):**")
+            for i, idea in enumerate(thumbnail_concepts, 1):
+                st.markdown(f"**Concept {i}:** {idea}")
+
+        st.markdown("---")
+
+        if st.button("🎨 Generate Thumbnail Images (4 Styles)", use_container_width=True,
+                     help="Uses Gemini Imagen 3 to generate viral-ready thumbnail mockups"):
+            from src.thumbnail_gen import generate_thumbnails
+            import os
+            with st.spinner("🖼️ Generating 4 thumbnail mockups with Gemini Imagen..."):
+                try:
+                    thumbs = generate_thumbnails(
+                        topic=st.session_state.get("last_topic", ""),
+                        thumbnail_concepts=thumbnail_concepts,
+                        api_key=os.getenv("GOOGLE_API_KEY"),
+                    )
+                    st.session_state["thumbnails"] = thumbs
+                except Exception as _te:
+                    st.warning(f"Thumbnail generation failed: {_te}")
+
+        # Display generated thumbnails (2x2 grid)
+        thumbs = st.session_state.get("thumbnails", [])
+        if thumbs:
+            col_a, col_b = st.columns(2)
+            cols = [col_a, col_b, col_a, col_b]
+            for i, thumb in enumerate(thumbs):
+                with cols[i]:
+                    st.markdown(
+                        f"<div style='background:{thumb['color']}22;border:1px solid {thumb['color']}55;"
+                        f"border-radius:10px;padding:10px;margin-bottom:10px'>"
+                        f"<div style='font-weight:700;margin-bottom:4px'>"
+                        f"{thumb['emoji']} {thumb['style']}</div>"
+                        f"<div style='font-size:0.75rem;opacity:0.6;margin-bottom:8px'>"
+                        f"{thumb['tip']}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                    if thumb.get("image_b64"):
+                        st.image(
+                            f"data:image/png;base64,{thumb['image_b64']}",
+                            caption=thumb["style"],
+                            use_container_width=True,
+                        )
+                    else:
+                        st.info(
+                            f"Imagen API unavailable for {thumb['style']} style. "
+                            "Use the text concept above in Canva or Photoshop.",
+                            icon="ℹ️",
+                        )
+
+    # ── History Dashboard Link ────────────────────────────────────────────────
+    st.markdown("---")
+    st.info(
+        "📊 **Want to see all your past generations and analytics?** "
+        "Use the sidebar navigation → **My History** page.",
+        icon="📊",
+    )

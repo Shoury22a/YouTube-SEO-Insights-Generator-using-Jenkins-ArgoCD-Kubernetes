@@ -13,6 +13,10 @@ spec:
     metadata:
       labels:
         app: youtube-seo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8502"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: youtube-seo
