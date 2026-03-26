@@ -59,9 +59,9 @@ SUMMARY_MODEL       = "gemini-2.5-flash"
 # ---------------------------------------------------------------------------
 
 class NicheAnalysis(BaseModel):
-    saturation_score: int = Field(description="Integer 1-10, 10 = most crowded")
-    competition_level: str = Field(description="One of: 'Low', 'Medium', 'High'")
-    recommendation: str = Field(description="1-2 sentence actionable advice")
+    saturation_score: int = Field(default=5, description="Integer 1-10, 10 = most crowded")
+    competition_level: str = Field(default="Medium", description="One of: 'Low', 'Medium', 'High'")
+    recommendation: str = Field(default="Focus on unique hook angles to stand out.", description="1-2 sentence actionable advice")
 
 
 class TimestampEntry(BaseModel):
@@ -70,20 +70,21 @@ class TimestampEntry(BaseModel):
 
 
 class SocialPosts(BaseModel):
-    twitter: str = Field(description="Tweet ≤280 characters")
-    linkedin: str = Field(description="Professional LinkedIn post")
-    instagram: str = Field(description="Instagram caption with hashtags")
+    twitter: str = Field(default="", description="Tweet ≤280 characters")
+    linkedin: str = Field(default="", description="Professional LinkedIn post")
+    instagram: str = Field(default="", description="Instagram caption with hashtags")
 
 
 class SEOOutput(BaseModel):
-    titles: list[str] = Field(description="3-5 A/B title options")
-    description: str = Field(description="200-350 word optimised description")
-    timestamps: list[TimestampEntry] = Field(description="Chapter timestamps, empty [] if no chapter notes")
-    tags: list[str] = Field(description="15-20 SEO tags, total ≤500 chars when joined")
-    social_posts: SocialPosts
-    thumbnail_ideas: list[str] = Field(description="3 vivid thumbnail concepts")
-    niche_analysis: NicheAnalysis
+    titles: list[str] = Field(default_factory=list, description="3-5 A/B title options")
+    description: str = Field(default="", description="200-350 word optimised description")
+    timestamps: list[TimestampEntry] = Field(default_factory=list, description="Chapter timestamps, empty [] if no chapter notes")
+    tags: list[str] = Field(default_factory=list, description="15-20 SEO tags, total ≤500 chars when joined")
+    social_posts: SocialPosts = Field(default_factory=lambda: SocialPosts(twitter="", linkedin="", instagram=""))
+    thumbnail_ideas: list[str] = Field(default_factory=list, description="3 vivid thumbnail concepts")
+    niche_analysis: NicheAnalysis = Field(default_factory=lambda: NicheAnalysis(saturation_score=5, competition_level="Medium", recommendation=""))
     contrarian_titles: list[str] = Field(
+        default_factory=list,
         description="2 contrarian titles if competitor context provided, else []"
     )
 
