@@ -1,0 +1,19 @@
+import os
+import requests
+import json
+from dotenv import load_dotenv
+
+load_dotenv()
+api_key = os.getenv("GOOGLE_API_KEY")
+
+model = "gemini-2.0-flash-lite"
+url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+headers = {'Content-Type': 'application/json'}
+data = {"contents": [{"parts": [{"text": "hi"}]}]}
+
+try:
+    response = requests.post(url, headers=headers, data=json.dumps(data), timeout=5)
+    print(f"Status: {response.status_code}")
+    print(response.text)
+except Exception as e:
+    print(f"Error: {e}")

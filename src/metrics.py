@@ -51,6 +51,28 @@ AGENT_REQUESTS = Counter(
     "Total number of agent invocations",
 )
 
+# ── RAGAS RAG Evaluation Metrics ──────────────────────────────────────────────
+
+RAG_FAITHFULNESS = Gauge(
+    "tuberank_rag_faithfulness",
+    "RAGAS faithfulness score (0.0-1.0) — is output grounded in context?",
+)
+
+RAG_ANSWER_RELEVANCY = Gauge(
+    "tuberank_rag_answer_relevancy",
+    "RAGAS answer relevancy score (0.0-1.0) — is output relevant to topic?",
+)
+
+RAG_CONTEXT_PRECISION = Gauge(
+    "tuberank_rag_context_precision",
+    "RAGAS context precision score (0.0-1.0) — were retrieved docs useful?",
+)
+
+RAG_CONTEXT_RECALL = Gauge(
+    "tuberank_rag_context_recall",
+    "RAGAS context recall score (0.0-1.0) — did we retrieve enough?",
+)
+
 
 # ---------------------------------------------------------------------------
 # Metrics Server
@@ -78,7 +100,12 @@ def start_metrics_server(port: int = 8502) -> None:
 # Convenience functions for recording metrics
 # ---------------------------------------------------------------------------
 
-def record_generation(elapsed_seconds: float, retry_count: int, retrieved_count: int) -> None:
+def record_generation(
+    elapsed_seconds: float,
+    retry_count: int,
+    retrieved_count: int,
+    rag_eval: dict | None = None,
+) -> None:
     """Record metrics for a completed generation."""
     GENERATION_DURATION.observe(elapsed_seconds)
     AGENT_REQUESTS.inc()
@@ -90,3 +117,16 @@ def record_generation(elapsed_seconds: float, retry_count: int, retrieved_count:
         CRITIC_FAIL.inc()
         for _ in range(retry_count):
             REFINEMENT_LOOPS.inc()
+
+    # Record RAGAS evaluation scores (if available)
+    if rag_eval and rag_eval.get("enabled"):
+        RAG_FAITHFULNESS.set(rag_eval.get("faithfulness", 0.0))
+        RAG_ANSWER_RELEVANCY.set(rag_eval.get("answer_relevancy", 0.0))
+        RAG_CONTEXT_PRECISION.set(rag_eval.get("context_precision", 0.0))
+        RAG_CONTEXT_RECALL.set(rag_eval.get("context_recall", 0.0))
+        logger.info(
+            f"RAGAS metrics recorded: faith={rag_eval.get('faithfulness', 0):.2f} | "
+            f"relevancy={rag_eval.get('answer_relevancy', 0):.2f} | "
+            f"precision={rag_eval.get('context_precision', 0):.2f} | "
+            f"recall={rag_eval.get('context_recall', 0):.2f}"
+        )

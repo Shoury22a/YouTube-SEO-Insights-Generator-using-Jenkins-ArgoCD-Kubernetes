@@ -30,6 +30,8 @@ spec:
             secretKeyRef:
               name: youtube-seo-secrets
               key: google-api-key
+        - name: RAGAS_EVALUATION_ENABLED
+          value: "false"
         resources:
           requests:
             memory: "512Mi"

@@ -11,8 +11,12 @@ Implements a 6-node agentic workflow:
 
 The graph uses conditional edges to loop between Critic → Refiner
 (max 2 retries) before finalizing.
+
+Tracing: All LangChain/LangGraph calls are automatically traced to
+LangSmith when LANGCHAIN_TRACING_V2=true is set in the environment.
 """
 
+import os
 import time
 from typing import TypedDict, Optional, Annotated
 
@@ -22,6 +26,38 @@ from src.logger import get_logger
 from src.rag_store import persist_generation, retrieve_similar
 
 logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# LangSmith Tracing — Auto-enabled via environment variables
+# ---------------------------------------------------------------------------
+
+def _check_langsmith_config():
+    """Log LangSmith tracing status at startup."""
+    tracing_enabled = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+    api_key = os.getenv("LANGCHAIN_API_KEY", "")
+    project = os.getenv("LANGCHAIN_PROJECT", "default")
+
+    if tracing_enabled and api_key and not api_key.startswith("your-"):
+        logger.info(
+            f"✅ LangSmith tracing ENABLED | project='{project}' | "
+            f"endpoint={os.getenv('LANGCHAIN_ENDPOINT', 'https://api.smith.langchain.com')}"
+        )
+        return True
+    elif tracing_enabled and (not api_key or api_key.startswith("your-")):
+        logger.warning(
+            "⚠️  LANGCHAIN_TRACING_V2=true but LANGCHAIN_API_KEY is missing or placeholder. "
+            "Tracing will NOT work. Get your key at https://smith.langchain.com"
+        )
+        # Disable tracing to prevent runtime errors
+        os.environ["LANGCHAIN_TRACING_V2"] = "false"
+        return False
+    else:
+        logger.info("ℹ️  LangSmith tracing disabled (LANGCHAIN_TRACING_V2 != 'true').")
+        return False
+
+
+_langsmith_active = _check_langsmith_config()
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +91,9 @@ class AgentState(TypedDict):
 
     # Telemetry
     step_log: list[str]
+
+    # RAG Evaluation (RAGAS)
+    rag_eval_scores: dict
 
 
 # ---------------------------------------------------------------------------
@@ -125,33 +164,54 @@ def researcher_node(state: AgentState) -> dict:
 
 def grader_node(state: AgentState) -> dict:
     """
-    Filters retrieved documents for relevance.
-    Uses simple keyword overlap instead of an LLM call (cheaper + faster).
+    Relevance Grader (Adaptive RAG) — Filters retrieved documents.
+    Uses Gemini 1.5 Flash-8B (fast, cheap, separate quota) to score relevance.
     """
+    import os
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
     retrieved = state.get("retrieved_context", [])
-    topic = state["topic"].lower()
+    topic = state["topic"]
     log = list(state.get("step_log", []))
 
     if not retrieved:
         log.append("📋 Grader: No documents to grade. Skipping.")
         return {"retrieved_context": [], "step_log": log}
 
-    log.append(f"📋 Grader: Evaluating {len(retrieved)} retrieved documents...")
+    log.append(f"📋 Grader: Performing Adaptive RAG check on {len(retrieved)} docs...")
 
-    # Simple relevance check: does the document share meaningful words with the topic?
-    topic_words = set(topic.split())
-    graded = []
-    for doc in retrieved:
-        doc_words = set(doc.lower().split())
-        overlap = topic_words & doc_words
-        # Keep if at least 1 meaningful word overlaps (excluding stop words)
-        stop_words = {"the", "a", "an", "in", "on", "to", "for", "of", "and", "or", "how", "what", "is"}
-        meaningful_overlap = overlap - stop_words
-        if meaningful_overlap:
-            graded.append(doc)
+    try:
+        from src.ai_model import _build_summary_llm_with_fallback
+        # Optimization: Use the summary model factory which is already lightweight and rotated
+        llm = _build_summary_llm_with_fallback()
 
-    log.append(f"✅ Grader: {len(graded)}/{len(retrieved)} documents passed relevance check.")
-    logger.info(f"Grader: {len(graded)}/{len(retrieved)} documents kept.")
+        graded = []
+        for i, doc in enumerate(retrieved):
+            prompt = (
+                "You are a relevance grader. Given a video topic and a document, "
+                "determine if the document is actually a past successful SEO generation "
+                "that is relevant to the current topic. Answer 'YES' or 'NO'.\n\n"
+                f"TOPIC: {topic}\n"
+                f"DOCUMENT: {doc[:1000]}\n\n"
+                "RELEVANT?"
+            )
+            response = llm.invoke(prompt)
+            verdict = response.content.strip().upper()
+            
+            if "YES" in verdict:
+                graded.append(doc)
+                logger.info(f"Grader: Doc {i+1} passed.")
+            else:
+                logger.info(f"Grader: Doc {i+1} rejected ({verdict}).")
+
+        log.append(f"✅ Grader: {len(graded)}/{len(retrieved)} documents kept (Adaptive RAG).")
+
+    except Exception as e:
+        logger.warning(f"Grader: LLM grading failed: {e}. Falling back to simple overlap.")
+        # Fallback to keyword overlap if API fails
+        topic_words = set(topic.lower().split())
+        graded = [doc for doc in retrieved if any(w in doc.lower() for w in topic_words if len(w) > 3)]
+        log.append(f"⚠️ Grader: LLM failed. Kept {len(graded)} via keyword fallback.")
 
     return {"retrieved_context": graded, "step_log": log}
 
@@ -311,9 +371,10 @@ def critic_node(state: AgentState) -> dict:
 def refiner_node(state: AgentState) -> dict:
     """
     Targeted refinement — fixes ONLY the components that failed the critique.
-    Uses a focused LLM call instead of re-running the full Architect.
+    Uses Gemini 1.5 Flash (different quota bucket from 2.0 Flash) to save primary quota.
     """
     import os
+    import json
     from langchain_google_genai import ChatGoogleGenerativeAI
 
     draft = state.get("draft_metadata", {})
@@ -324,15 +385,10 @@ def refiner_node(state: AgentState) -> dict:
     log.append(f"✏️ Refiner: Fixing issues (attempt {retry_count + 1}/2)...")
 
     try:
-        api_key = os.getenv("GOOGLE_API_KEY")
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            google_api_key=api_key,
-            temperature=0.5,
-            max_output_tokens=2048,
-        )
+        from src.ai_model import _build_llm_with_fallback
+        # Use the robust LLM with rotation and Groq fallback
+        llm = _build_llm_with_fallback()
 
-        import json
         refine_prompt = (
             "You are an SEO quality editor. The following SEO metadata draft has issues.\n\n"
             f"DRAFT:\n{json.dumps(draft, indent=2, default=str)[:3000]}\n\n"
@@ -348,7 +404,11 @@ def refiner_node(state: AgentState) -> dict:
         # Clean markdown formatting if present
         if response_text.startswith("```"):
             lines = response_text.split("\n")
-            response_text = "\n".join(lines[1:-1])
+            # Handle both ```json and plain ```
+            start_index = 1
+            if lines[0].lower().strip() == "```json" or lines[0].lower().strip() == "```":
+                start_index = 1
+            response_text = "\n".join(lines[start_index:-1])
 
         refined = json.loads(response_text)
 
@@ -357,12 +417,12 @@ def refiner_node(state: AgentState) -> dict:
             if key in draft:
                 draft[key] = refined[key]
 
-        log.append("✅ Refiner: Issues addressed. Sending back to Critic.")
+        log.append("✅ Refiner: Issues fixed. Verifying with Critic...")
         logger.info(f"Refiner: Refinement attempt {retry_count + 1} complete.")
 
     except Exception as e:
         logger.warning(f"Refiner: Refinement failed: {e}. Keeping original draft.")
-        log.append(f"⚠️ Refiner: Could not fix issues ({e}). Keeping original.")
+        log.append(f"⚠️ Refiner: Could not fix issues ({e}). Moving to finalizer.")
 
     return {
         "draft_metadata": draft,
@@ -377,8 +437,8 @@ def refiner_node(state: AgentState) -> dict:
 
 def finalizer_node(state: AgentState) -> dict:
     """
-    Final step: saves the output to ChromaDB for future RAG retrieval
-    and sets the final_metadata field.
+    Final step: saves the output to ChromaDB for future RAG retrieval,
+    runs optional RAGAS evaluation, and sets the final_metadata field.
     """
     draft = state.get("draft_metadata", {})
     log = list(state.get("step_log", []))
@@ -394,10 +454,38 @@ def finalizer_node(state: AgentState) -> dict:
             language=state.get("language", "English"),
         )
 
+    # ── RAGAS RAG Quality Evaluation (optional) ──────────────────────────
+    rag_eval = {}
+    try:
+        from src.rag_evaluator import evaluate_rag_quality, is_eval_enabled
+
+        if is_eval_enabled():
+            log.append("📊 Finalizer: Running RAGAS RAG quality evaluation...")
+            eval_result = evaluate_rag_quality(
+                topic=state["topic"],
+                audience=state.get("audience", ""),
+                retrieved_contexts=state.get("retrieved_context", []),
+                final_output=draft,
+                content_type=state.get("content_type", "Long-Form Video"),
+            )
+            rag_eval = eval_result.to_dict()
+            log.append(
+                f"📊 RAGAS: {eval_result.verdict} "
+                f"(avg={eval_result.average_score:.2f}) | "
+                f"faith={eval_result.faithfulness:.2f} | "
+                f"relevancy={eval_result.answer_relevancy:.2f} | "
+                f"precision={eval_result.context_precision:.2f} | "
+                f"recall={eval_result.context_recall:.2f}"
+            )
+    except Exception as e:
+        logger.warning(f"Finalizer: RAGAS evaluation failed: {e}")
+        log.append(f"⚠️ Finalizer: RAGAS evaluation failed — {e}")
+
     log.append("✅ Finalizer: Generation complete and saved to memory!")
 
     return {
         "final_metadata": draft,
+        "rag_eval_scores": rag_eval,
         "step_log": log,
     }
 
@@ -418,8 +506,8 @@ def should_refine(state: AgentState) -> str:
 
     if critique == "PASS":
         return "finalizer"
-    if retry_count >= 2:
-        logger.info("Critic: Max retries reached. Forcing finalization.")
+    if retry_count >= 1:
+        logger.info("Critic: Max retries (1) reached. Forcing finalization.")
         return "finalizer"
     return "refiner"
 
@@ -529,10 +617,25 @@ def run_seo_agent(
         "retry_count": 0,
         "final_metadata": {},
         "step_log": [],
+        "rag_eval_scores": {},
     }
 
-    # Run the graph
-    final_state = agent.invoke(initial_state)
+    # ── LangSmith: attach rich metadata to this run for filtering ────────
+    run_config = {
+        "metadata": {
+            "topic": topic,
+            "content_type": content_type,
+            "language": output_language,
+            "audience": audience[:100],  # truncate for metadata
+            "has_transcript": bool(transcript),
+            "has_competitor": bool(competitor_context),
+        },
+        "tags": ["seo-agent", content_type.lower().replace(" ", "-"), output_language.lower()],
+        "run_name": f"SEO Agent — {topic[:60]}",
+    }
+
+    # Run the graph (LangSmith auto-traces when LANGCHAIN_TRACING_V2=true)
+    final_state = agent.invoke(initial_state, config=run_config)
 
     elapsed = time.time() - t0
     logger.info(f"SEO Agent completed in {elapsed:.2f}s | retries={final_state.get('retry_count', 0)}")
@@ -543,4 +646,5 @@ def run_seo_agent(
         "retry_count": final_state.get("retry_count", 0),
         "retrieved_count": len(final_state.get("retrieved_context", [])),
         "elapsed_seconds": round(elapsed, 2),
+        "rag_eval": final_state.get("rag_eval_scores", {}),
     }

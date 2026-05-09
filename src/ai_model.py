@@ -35,6 +35,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.logger import get_logger
 from src.exception import APIException
 
+from langchain_groq import ChatGroq
+import random
+
 load_dotenv()
 logger = get_logger(__name__)
 
@@ -47,11 +50,12 @@ MAX_TRANSCRIPT_CHARS = 25_000
 MAX_TAG_CHARS        = 500
 SHORT_TITLE_MAX      = 45
 
-PRIMARY_MODEL       = "gemini-2.5-flash"
-FALLBACK_PRO_MODEL  = "gemini-2.5-pro"
-FALLBACK_FLASH_MODEL = "gemini-1.5-flash"  # Kept as legacy fallback if needed
-FALLBACK_8B_MODEL    = "gemini-2.5-flash"  # Defaulting 8B to 2.5 Flash if 8B not in list
-SUMMARY_MODEL       = "gemini-2.5-flash"
+PRIMARY_MODEL       = "gemini-2.0-flash"
+FALLBACK_FLASH_MODEL = "gemini-flash-latest"  # Confirmed Working Fallback
+FALLBACK_PRO_MODEL  = "gemini-pro-latest"
+FALLBACK_8B_MODEL    = "gemini-flash-lite-latest"
+SUMMARY_MODEL       = "gemini-flash-latest"
+GROQ_MODEL           = "llama-3.3-70b-versatile"
 
 
 # ---------------------------------------------------------------------------
@@ -93,60 +97,91 @@ class SEOOutput(BaseModel):
 # LLM Client factory — with automatic fallback via LangChain
 # ---------------------------------------------------------------------------
 
-def _get_api_key() -> str:
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
+def _get_api_keys() -> list[str]:
+    """Returns a list of all available Gemini API keys from the environment."""
+    keys = []
+    # Primary
+    p = os.getenv("GOOGLE_API_KEY")
+    if p: keys.append(p)
+    # Additional keys (GOOGLE_API_KEY_2, 3...)
+    for i in range(2, 6):
+        k = os.getenv(f"GOOGLE_API_KEY_{i}")
+        if k: keys.append(k)
+        
+    if not keys:
         raise APIException(
-            "GOOGLE_API_KEY is not set. "
-            "Get a free key at https://aistudio.google.com/app/apikey "
-            "and add it to the .env file.",
+            "No GOOGLE_API_KEY found. "
+            "Add at least one to your .env file.",
             sys,
         )
-    return api_key
+    return keys
 
 
 def _build_llm_with_fallback() -> ChatGoogleGenerativeAI:
     """
     Returns a robust LangChain LLM chain with multiple automatic fallbacks.
-    If the primary model hits a quota/rate-limit (429), LangChain 
-    transparently retries with the next model in the chain.
+    Rotates through multiple API keys and falls back to Groq if provided.
     """
-    api_key = _get_api_key()
+    keys = _get_api_keys()
+    groq_key = os.getenv("GROQ_API_KEY")
+    
+    all_llms = []
 
-    def _make_llm(name: str, tokens: int = 4096) -> ChatGoogleGenerativeAI:
-        return ChatGoogleGenerativeAI(
-            model=name,
-            google_api_key=api_key,
+    # 1. Build Gemini models for each key (Key 1 -> Key 2 -> Key 3...)
+    for key in keys:
+        def _make_gemini(name: str, k=key) -> ChatGoogleGenerativeAI:
+            return ChatGoogleGenerativeAI(
+                model=name,
+                google_api_key=k,
+                temperature=0.7,
+                max_output_tokens=4096,
+            )
+        
+        all_llms.append(_make_gemini(PRIMARY_MODEL))
+        all_llms.append(_make_gemini(FALLBACK_FLASH_MODEL))
+        all_llms.append(_make_gemini(FALLBACK_PRO_MODEL))
+
+    # 2. Add Groq as the ultimate fallback if key exists
+    if groq_key:
+        logger.info("Adding Groq as the final fallback provider.")
+        groq_llm = ChatGroq(
+            model=GROQ_MODEL,
+            groq_api_key=groq_key,
             temperature=0.7,
-            max_output_tokens=tokens,
         )
+        all_llms.append(groq_llm)
 
-    primary  = _make_llm(PRIMARY_MODEL)
-    f1_flash = _make_llm(FALLBACK_FLASH_MODEL)
-    f2_pro   = _make_llm(FALLBACK_PRO_MODEL)
-    f3_8b    = _make_llm(FALLBACK_8B_MODEL)
+    if not all_llms:
+        raise APIException("No models could be initialized.", sys)
 
-    # Relay race: 2.0 Flash -> 1.5 Flash -> 1.5 Pro -> 1.5 Flash-8B
-    return primary.with_fallbacks([f1_flash, f2_pro, f3_8b])
+    primary = all_llms[0]
+    fallbacks = all_llms[1:]
+    
+    return primary.with_fallbacks(fallbacks) if fallbacks else primary
 
 
 def _build_summary_llm_with_fallback() -> ChatGoogleGenerativeAI:
     """
-    Returns the summary LLM with its own fallback chain.
+    Summary LLM with a single key rotation.
     """
-    api_key = _get_api_key()
-
-    def _make_llm(name: str) -> ChatGoogleGenerativeAI:
-        return ChatGoogleGenerativeAI(
-            model=name,
-            google_api_key=api_key,
-            temperature=0.3,
-            max_output_tokens=700,
-        )
-
-    primary  = _make_llm(SUMMARY_MODEL)
-    fallback = _make_llm(FALLBACK_FLASH_MODEL)
-
+    keys = _get_api_keys()
+    key = random.choice(keys)
+    
+    primary = ChatGoogleGenerativeAI(
+        model=SUMMARY_MODEL,
+        google_api_key=key,
+        temperature=0.3,
+        max_output_tokens=700,
+    )
+    
+    # Add a fallback to 1.5 flash-lite just in case
+    fallback = ChatGoogleGenerativeAI(
+        model=FALLBACK_8B_MODEL,
+        google_api_key=key,
+        temperature=0.3,
+        max_output_tokens=700,
+    )
+    
     return primary.with_fallbacks([fallback])
 
 
@@ -326,7 +361,8 @@ def check_api_connection() -> dict:
         dict with keys: 'status' (bool), 'message' (str), 'details' (str)
     """
     try:
-        api_key = _get_api_key()
+        api_keys = _get_api_keys()
+        api_key = api_keys[0] # Just check the first one
         # Minimalist call: just list models (doesn't use quota/cost)
         url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
         response = requests.get(url, timeout=10)
@@ -335,7 +371,7 @@ def check_api_connection() -> dict:
             return {
                 "status": True,
                 "message": "Connected",
-                "details": "Gemini 2.0 Flash is ready."
+                "details": f"API is ready ({len(api_keys)} keys found)."
             }
         
         err_msg = response.json().get("error", {}).get("message", "Unknown Error")
@@ -386,6 +422,18 @@ def generate_seo_metadata(
     elif transcript_text:
         transcript_text = transcript_text[:MAX_TRANSCRIPT_CHARS]
 
+    # ── 1b. Adaptive RAG Retrieval (New for Linear) ─────────────────────────
+    if not competitor_context:
+        try:
+            from src.rag_store import retrieve_similar
+            similar = retrieve_similar(topic=topic, k=2, content_type=content_type, language=output_language)
+            if similar:
+                rag_data = "\n\n--- PAST SUCCESSES ---\n" + "\n".join([s['content'] for s in similar])
+                competitor_context = (competitor_context or "") + rag_data
+                logger.info("Linear generation enriched with RAG context.")
+        except Exception as e:
+            logger.warning(f"Linear RAG retrieval failed: {e}")
+
     # ── 2. Build LLM with automatic fallback ─────────────────────────────────
     try:
         llm = _build_llm_with_fallback()
@@ -428,7 +476,7 @@ def generate_seo_metadata(
     chain = prompt | llm | parser
 
     try:
-        logger.info("Invoking LangChain chain: Prompt → Gemini (with fallback) → PydanticOutputParser")
+        logger.info("Invoking LangChain chain: Prompt → Gemini/Groq (with fallback) → PydanticOutputParser")
         t0 = time.time()
         seo: SEOOutput = chain.invoke({
             "system": system_prompt_text,
@@ -442,9 +490,9 @@ def generate_seo_metadata(
 
         if any(x in err_lower for x in ["quota", "resource_exhausted", "429", "rate limit"]):
             raise APIException(
-                "All AI models are currently at their free-tier quota limits. "
-                "The LangChain fallback chain (4 models deep) has been exhausted. "
-                "Please wait 60 seconds and try again. "
+                "All AI models (including fallbacks) are currently at their quota limits. "
+                "TIP: Add a second API key (GOOGLE_API_KEY_2) or a GROQ_API_KEY to your .env "
+                "to increase your daily capacity. "
                 f"Details: {err_str}", sys
             ) from e
 
@@ -494,46 +542,6 @@ def generate_seo_metadata(
     logger.info("Linear SEO generation complete.")
     return metadata
 
-    # Normalize social_posts
-    sp = seo.social_posts
-    if hasattr(sp, "twitter"):
-        social_dict = {"twitter": sp.twitter, "linkedin": sp.linkedin, "instagram": sp.instagram}
-    else:
-        social_dict = dict(sp)
-
-    # Normalize niche_analysis
-    na = seo.niche_analysis
-    if hasattr(na, "saturation_score"):
-        niche_dict = {
-            "saturation_score": na.saturation_score,
-            "competition_level": na.competition_level,
-            "recommendation": na.recommendation,
-        }
-    else:
-        niche_dict = dict(na)
-
-    data = {
-        "titles": list(seo.titles),
-        "description": seo.description,
-        "timestamps": normalized_timestamps,
-        "tags": list(seo.tags),
-        "social_posts": social_dict,
-        "thumbnail_ideas": list(seo.thumbnail_ideas),
-        "niche_analysis": niche_dict,
-        "contrarian_titles": list(seo.contrarian_titles),
-    }
-
-    # ── 7. Post-processing (same as before) ───────────────────────────────────
-    data["timestamps"] = _validate_timestamps(data["timestamps"])
-    data["tags"]       = _enforce_tag_limit(data["tags"])
-
-    if content_type == "YouTube Short":
-        data["titles"]     = _enforce_short_titles(data["titles"])
-        data["timestamps"] = []
-
-    logger.info("SEO metadata generation complete.")
-    return data
-
 
 # ---------------------------------------------------------------------------
 # Agentic API — Full LangGraph Pipeline (Researcher → Critic → Refiner)
@@ -557,7 +565,7 @@ def generate_seo_metadata_agentic(
       - RAG retrieval (past successes from ChromaDB)
       - Web search for trending topics
       - Automated quality critique (5 benchmarks)
-      - Targeted refinement loop (max 2 retries)
+      - Targeted refinement loop (max 1 retry)
       - Persistence to vector store for future use
 
     Returns:
@@ -598,6 +606,7 @@ def generate_seo_metadata_agentic(
                 elapsed_seconds=result.get("elapsed_seconds", 0),
                 retry_count=result.get("retry_count", 0),
                 retrieved_count=result.get("retrieved_count", 0),
+                rag_eval=result.get("rag_eval", None),
             )
         except Exception as e:
             logger.warning(f"Metrics recording failed: {e}")
@@ -607,13 +616,26 @@ def generate_seo_metadata_agentic(
         metadata["_agent_retries"] = result.get("retry_count", 0)
         metadata["_agent_elapsed"] = result.get("elapsed_seconds", 0)
         metadata["_rag_count"] = result.get("retrieved_count", 0)
+        metadata["_rag_eval"] = result.get("rag_eval", {})
 
         logger.info("Agentic SEO generation complete.")
         return metadata
 
     except Exception as e:
         logger.warning(f"Agent pipeline failed: {e}. Falling back to linear generation.")
-        # Graceful fallback: if the agent crashes, use the original linear pipeline
+        # 1. Retrieve RAG context for the linear fallback if possible
+        competitor_context = competitor_context or ""
+        try:
+            from src.rag_store import retrieve_similar
+            similar = retrieve_similar(topic=topic, k=2, content_type=content_type, language=output_language)
+            if similar:
+                rag_data = "\n\n--- PAST SUCCESSES ---\n" + "\n".join([s['content'] for s in similar])
+                competitor_context += rag_data
+                logger.info("Linear fallback enriched with RAG context.")
+        except Exception as rag_err:
+            logger.warning(f"Linear RAG retrieval failed: {rag_err}")
+
+        # 2. Run the original linear pipeline
         result = generate_seo_metadata(
             topic=topic,
             audience=audience,
@@ -624,9 +646,16 @@ def generate_seo_metadata_agentic(
             chapter_notes=chapter_notes,
             competitor_context=competitor_context,
         )
-        result["_agent_log"] = ["⚠️ Agent unavailable. Used linear generation as fallback."]
+
+        # 3. Persist this linear result to RAG so we 'learn' even from fallbacks
+        try:
+            from src.rag_store import persist_generation
+            persist_generation(topic=topic, seo_bundle=result, content_type=content_type, language=output_language)
+        except Exception as persist_err:
+            logger.warning(f"Linear RAG persistence failed: {persist_err}")
+
+        result["_agent_log"] = ["⚠️ Agent offline (Quota). Used linear + RAG memory as fallback."]
         result["_agent_retries"] = 0
         result["_agent_elapsed"] = 0
         result["_rag_count"] = 0
         return result
-

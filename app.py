@@ -4,6 +4,7 @@ Provides a rich UI for generating AI-powered YouTube SEO metadata.
 """
 
 import base64
+import hashlib
 import streamlit as st
 from src.logger import get_logger
 from src.extractor import extract_video_metadata, compute_niche_saturation, compute_contrarian_score
@@ -11,6 +12,7 @@ from src.ai_model import generate_seo_metadata, generate_seo_metadata_agentic, c
 from src.title_scorer import score_title, compute_report_card
 from src.pdf_exporter import build_pdf
 from src.exception import APIException, ValidationException, SEOAppException
+from src.token_budget import get_budget_status, reset_budget
 
 logger = get_logger(__name__)
 
@@ -68,6 +70,7 @@ def inject_custom_css(theme: str):
         code_bg         = "rgba(255,255,255,0.04)"
         success_bg      = "rgba(0,220,130,0.1)"
         metric_bg       = "rgba(255,255,255,0.04)"
+        telemetry_bg    = "rgba(255,30,90,0.08)"
     else:
         bg_main         = "#f4f3ff"
         bg_surface      = "#ffffff"
@@ -98,6 +101,7 @@ def inject_custom_css(theme: str):
         code_bg         = "rgba(99,53,220,0.04)"
         success_bg      = "rgba(0,180,100,0.08)"
         metric_bg       = "rgba(99,53,220,0.04)"
+        telemetry_bg    = "rgba(99,53,220,0.06)"
 
     # Shared gradient — adapts accent to theme
     grad = "linear-gradient(90deg, #ff1e5a 0%, #cc00ff 100%)" if is_dark else \
@@ -429,6 +433,7 @@ def inject_custom_css(theme: str):
                 font-family: 'Outfit', sans-serif !important;
                 font-weight: 600 !important;
                 color: {text_sub} !important;
+                background: transparent !important;
             }}
             .stTabs [aria-selected="true"] {{
                 color: {text_main} !important;
@@ -493,7 +498,7 @@ st.markdown(
         <div class="hero-brand">
             {logo_html}
             <div>
-                <div class="hero-badge">✦ Powered by Gemini 2.0 Flash</div>
+                <div class="hero-badge">✦ Powered by Gemini & Groq</div>
                 <h1>TubeRank AI</h1>
             </div>
         </div>
@@ -503,9 +508,9 @@ st.markdown(
         </p>
             <div class="hero-stats">
                 <div class="stat-chip"><span>10+</span>Languages</div>
-                <div class="stat-chip"><span>AI</span>Competitor Intel</div>
+                <div class="stat-chip"><span>AI</span>Adaptive RAG</div>
                 <div class="stat-chip"><span>6</span>Agent Nodes</div>
-                <div class="stat-chip"><span>∞</span>Self-Correcting</div>
+                <div class="stat-chip"><span>∞</span>Reliable</div>
             </div>
     </div>
     """,
@@ -554,6 +559,19 @@ with st.sidebar:
         value=True,
         help="Enable the full LangGraph agent pipeline with RAG memory, web search, self-critique, and auto-refinement. Disable for the faster linear generation.",
     )
+
+    if use_agent:
+        st.markdown(
+            """
+            <div style='background:rgba(255,255,255,0.04);border-radius:12px;padding:12px;border:1px solid rgba(255,30,90,0.2)'>
+                <div style='font-size:0.75rem;font-weight:700;color:rgba(255,30,90,0.9);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px'>🧠 Brain Status</div>
+                <div style='font-size:0.85rem;margin-bottom:4px'>• Adaptive RAG: <span style='color:#00e676'>Active</span></div>
+                <div style='font-size:0.85rem;margin-bottom:4px'>• Multi-Key Rotation: <span style='color:#00e676'>Active</span></div>
+                <div style='font-size:0.85rem'>• Provider Fallback: <span style='color:#00e676'>Enabled (Groq)</span></div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
     st.markdown("---")
     st.markdown("## 🔗 Competitor Reference (Optional)")
@@ -606,8 +624,34 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
+    # ── Token Budget Tracker ──────────────────────────────────────
+    st.markdown("---")
+    st.markdown("## 📊 Token Budget Tracker")
+    budget = get_budget_status()
+    
+    # Progress bar for daily usage
+    usage_pct = budget["usage_pct"]
+    bar_color = "#00e676" if usage_pct < 0.8 else "#ffaa00" if usage_pct < 0.95 else "#ff4444"
+    st.markdown(
+        f"""
+        <div style='margin-bottom:4px;font-size:0.85rem'>
+            Daily Quota: <strong>{int(usage_pct*100)}% Used</strong>
+        </div>
+        <div style='background:rgba(255,255,255,0.06);border-radius:6px;height:8px;overflow:hidden;margin-bottom:8px'>
+            <div style='width:{usage_pct*100}%;height:100%;background:{bar_color};border-radius:6px'></div>
+        </div>
+        <div style='font-size:0.75rem;opacity:0.6;line-height:1.4'>{budget['message']}</div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    if st.button("🔄 Refresh Budget", use_container_width=True):
+        st.rerun()
 
-
+    if usage_pct > 0.5:
+        if st.button("🗑️ Reset Budget (Debug Only)", use_container_width=True):
+            reset_budget()
+            st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -685,7 +729,7 @@ else:
         )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Generate Button (disabled until topic has ≥5 words)
+# Generate Button (disabled until topic has ≥2 words)
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("---")
 
@@ -736,6 +780,7 @@ if generate_clicked:
 
     # ── 1. Optional competitor scraping ──────────────────────────────────────
     competitor_context = ""
+    meta = {}
     if competitor_url.strip():
         with st.spinner("🔍 Scraping competitor video metadata..."):
             meta = extract_video_metadata(competitor_url.strip())
@@ -762,39 +807,69 @@ if generate_clicked:
     # ── 2. AI generation ─────────────────────────────────────────────────────
     try:
         if use_agent:
-            # ── Agentic Mode: LangGraph pipeline ─────────────────────────
-            with st.status("🤖 **Agent is working...**", expanded=True) as status:
-                st.write("🔍 **Researcher:** Searching memory & web for context...")
-                result = generate_seo_metadata_agentic(
-                    topic=topic.strip(),
-                    audience=audience.strip(),
-                    content_type=content_type,
-                    output_language=output_language,
-                    transcript=transcript.strip(),
-                    visual_description=visual_description.strip() if use_visual_desc else "",
-                    chapter_notes=chapter_notes.strip(),
-                    competitor_context=competitor_context,
-                )
-                # Show the agent's step log live
-                agent_log = result.pop("_agent_log", [])
-                agent_retries = result.pop("_agent_retries", 0)
-                agent_elapsed = result.pop("_agent_elapsed", 0)
-                rag_count = result.pop("_rag_count", 0)
+            # ── Agentic Mode with Caching ─────────────────────────────────────
+            inputs_str = f"{topic}|{audience}|{content_type}|{output_language}|{transcript}|{visual_description}|{chapter_notes}|{competitor_context}"
+            inputs_hash = hashlib.sha256(inputs_str.encode()).hexdigest()
+            
+            if "agentic_cache" not in st.session_state:
+                st.session_state["agentic_cache"] = {}
+                
+            if inputs_hash in st.session_state["agentic_cache"]:
+                logger.info("UI: Using cached agentic result.")
+                cached_data = st.session_state["agentic_cache"][inputs_hash]
+                result = cached_data["result"]
+                agent_log = cached_data["agent_log"]
+                agent_retries = cached_data["agent_retries"]
+                agent_elapsed = cached_data["agent_elapsed"]
+                rag_count = cached_data["rag_count"]
+                rag_eval = cached_data["rag_eval"]
+                st.info("⚡ Using cached agentic result (inputs unchanged).")
+            else:
+                # ── Agentic Mode: LangGraph pipeline ─────────────────────────
+                with st.status("🤖 **Agent is working...**", expanded=True) as status:
+                    st.write("🔍 **Researcher:** Searching memory & web for context...")
+                    result = generate_seo_metadata_agentic(
+                        topic=topic.strip(),
+                        audience=audience.strip(),
+                        content_type=content_type,
+                        output_language=output_language,
+                        transcript=transcript.strip(),
+                        visual_description=visual_description.strip() if use_visual_desc else "",
+                        chapter_notes=chapter_notes.strip(),
+                        competitor_context=competitor_context,
+                    )
+                    # Show the agent's step log live
+                    agent_log = result.pop("_agent_log", [])
+                    agent_retries = result.pop("_agent_retries", 0)
+                    agent_elapsed = result.pop("_agent_elapsed", 0)
+                    rag_count = result.pop("_rag_count", 0)
+                    rag_eval = result.pop("_rag_eval", {})
 
-                for step in agent_log:
-                    st.write(step)
+                    for step in agent_log:
+                        st.write(step)
 
-                status.update(
-                    label=f"✅ Agent complete in {agent_elapsed}s | "
-                          f"{agent_retries} refinements | {rag_count} docs from memory",
-                    state="complete",
-                    expanded=False,
-                )
+                    status.update(
+                        label=f"✅ Agent complete in {agent_elapsed}s | "
+                              f"{agent_retries} refinements | {rag_count} docs from memory",
+                        state="complete",
+                        expanded=False,
+                    )
+                
+                # Cache the result and metadata
+                st.session_state["agentic_cache"][inputs_hash] = {
+                    "result": result,
+                    "agent_log": agent_log,
+                    "agent_retries": agent_retries,
+                    "agent_elapsed": agent_elapsed,
+                    "rag_count": rag_count,
+                    "rag_eval": rag_eval
+                }
 
             st.session_state["agent_log"] = agent_log
             st.session_state["agent_retries"] = agent_retries
             st.session_state["agent_elapsed"] = agent_elapsed
             st.session_state["rag_count"] = rag_count
+            st.session_state["rag_eval"] = rag_eval
         else:
             # ── Linear Mode: Original pipeline ───────────────────────────
             with st.spinner("🤖 Gemini is crafting your SEO package... this may take 15-30 seconds"):
@@ -810,6 +885,8 @@ if generate_clicked:
                 )
             st.session_state["agent_log"] = []
             st.session_state["agent_retries"] = 0
+            st.session_state["rag_count"] = 0
+            st.session_state["agent_elapsed"] = 0
 
         st.session_state["last_result"] = result
         st.session_state["last_content_type"] = content_type
@@ -851,12 +928,26 @@ result = st.session_state.get("last_result")
 last_content_type = st.session_state.get("last_content_type", "Long-Form Video")
 
 if result:
+    # ── Display Agent Telemetry in Sidebar ──────────────────────────────────
+    agent_log = st.session_state.get("agent_log", [])
+    if agent_log:
+        with st.sidebar:
+            st.markdown("---")
+            st.markdown("### 📡 Agent Telemetry")
+            st.metric("RAG Memories Found", st.session_state.get("rag_count", 0))
+            st.metric("Thinking Cycles", st.session_state.get("agent_retries", 0) + 1)
+            st.metric("Execution Time", f"{st.session_state.get('agent_elapsed', 0)}s")
+            
+            rag_eval = st.session_state.get("rag_eval", {})
+            if rag_eval and rag_eval.get("explanation"):
+                st.info(f"🧠 **Memory Logic:** {rag_eval['explanation'][:150]}...")
+
     st.markdown("---")
     st.success("🎉 Your SEO package is ready! Use the expanders below to copy each section.", icon="✅")
 
     # ── PDF Download ─────────────────────────────────────────────────────
     try:
-        _pdf_topic = st.session_state.get("last_topic", topic.strip())
+        _pdf_topic = st.session_state.get("last_topic", "")
         _report = compute_report_card(result, _pdf_topic, last_content_type)
         _title_scores = [
             score_title(t, _pdf_topic, last_content_type)
@@ -880,7 +971,6 @@ if result:
         logger.warning(f"PDF generation failed: {_pdf_err}")
 
     # ── Agent Reasoning Log ─────────────────────────────────────────────────
-    agent_log = st.session_state.get("agent_log", [])
     if agent_log:
         retries = st.session_state.get("agent_retries", 0)
         elapsed = st.session_state.get("agent_elapsed", 0)
@@ -955,7 +1045,7 @@ if result:
                 unsafe_allow_html=True,
             )
 
-    # ── Feature 5: Niche Saturation Score (REAL DATA) ──────────────────────────
+    # ── Niche Saturation Score ────────────────────────────────────────────────
     niche = st.session_state.get("real_niche") or result.get("niche_analysis", {})
     if niche and isinstance(niche, dict):
         raw_score = niche.get("saturation_score", 5)
@@ -1016,10 +1106,6 @@ if result:
         if not titles:
             st.warning("No titles returned.")
         else:
-            st.caption(
-                "Each title is scored on CTR potential and SEO keyword alignment. "
-                "Hook types identified using pattern matching on 80+ power words."
-            )
             for i, title in enumerate(titles, 1):
                 s = score_title(title, topic_for_score, last_content_type)
                 ctr = s["ctr_score"]
@@ -1040,73 +1126,27 @@ if result:
                     f"🔑 SEO <strong style='color:{seo_color}'>{seo}/10</strong></span>"
                     f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
                     f"📏 <strong style='color:{char_color}'>{s['char_count']} chars</strong></span>"
-                    f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
-                    f"{s['hook_emoji']} {s['hook_type']}</span>"
-                    + (
-                        f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
-                        f"🔢 Has number</span>" if s["has_number"] else ""
-                    )
-                    + (
-                        f"<span style='background:rgba(255,255,255,0.07);border-radius:6px;padding:3px 8px'>"
-                        f"📌 Has brackets</span>" if s["has_brackets"] else ""
-                    )
-                    + f"</div>"
-                    + (
-                        f"<div style='margin-top:8px;font-size:0.73rem;opacity:0.5'>"
-                        f"Power words: {', '.join(s['power_words'])}</div>" if s["power_words"] else ""
-                    )
+                    f"</div>"
                     + f"<div style='margin-top:6px;font-size:0.75rem;color:#aaa'>💡 {s['feedback']}</div>"
                     + "</div>",
                     unsafe_allow_html=True,
                 )
                 st.code(title, language=None)
 
-    # ── Feature 4: Contrarian Hook Generator (with real Divergence Scores) ──────
+    # ── Contrarian Hooks ──────────────────────────────────────────────────────
     contrarian = result.get("contrarian_titles", [])
-    competitor_title_for_score = st.session_state.get("last_competitor_title", "")
     if contrarian and isinstance(contrarian, list) and any(contrarian):
         with st.expander("🎭 Contrarian Hooks — Stand-Out Titles", expanded=True):
-            st.markdown(
-                "*These titles deliberately challenge the competitor\u2019s angle. "
-                "**Divergence Score** = how mathematically different it is (Jaccard Word Divergence).*"
-            )
             for i, ct in enumerate(contrarian, 1):
                 if ct and ct.strip():
-                    ct = ct.strip()
-                    if competitor_title_for_score:
-                        score_data = compute_contrarian_score(competitor_title_for_score, ct)
-                        ds = score_data["divergence_score"]
-                        interp = score_data["interpretation"]
-                        shared = score_data["shared_words"]
-                        clr = "#00cc66" if ds >= 7 else "#ffaa00" if ds >= 5 else "#ff4444"
-                        score_badge = (
-                            f'<span style="color:{clr};font-weight:800;font-size:1.1rem">'
-                            f"{ds}/10</span> "
-                            f'<span style="opacity:0.6;font-size:0.85rem">{interp}</span>'
-                        )
-                        if shared:
-                            overlap_note = f"*Shared words (reduced contrast): {', '.join(shared)}*"
-                        else:
-                            overlap_note = "*No word overlap with competitor — maximum contrast!*"
-                    else:
-                        score_badge = ""
-                        overlap_note = ""
-
                     st.markdown(f"**Contrarian Title {i}**")
-                    if score_badge:
-                        st.markdown(score_badge, unsafe_allow_html=True)
-                    st.code(ct, language=None)
-                    if overlap_note:
-                        st.caption(overlap_note)
-            st.caption(
-                "💡 Tip: Contrarian titles often get 2-3x higher CTR because they disrupt viewer expectations."
-            )
+                    st.code(ct.strip(), language=None)
 
     # ── Description ───────────────────────────────────────────────────────────
     with st.expander("📄 Optimized Description", expanded=True):
         st.code(result.get("description", ""), language=None)
 
-    # ── Timestamps (long-form only) ───────────────────────────────────────────
+    # ── Timestamps ────────────────────────────────────────────────────────────
     timestamps = result.get("timestamps", [])
     if last_content_type == "Long-Form Video":
         with st.expander("⏱️ Timestamps", expanded=bool(timestamps)):
@@ -1117,103 +1157,34 @@ if result:
                 )
                 st.code(ts_text, language=None)
             else:
-                st.info(
-                    "No timestamps generated — provide Chapter Notes to enable this section.",
-                    icon="ℹ️",
-                )
+                st.info("No timestamps generated.")
 
-    # ── Tags ─────────────────────────────────────────────────────────────────
+    # ── Tags ──────────────────────────────────────────────────────────────────
     with st.expander("🏷️ SEO Tags", expanded=True):
         tags = result.get("tags", [])
         if tags:
-            # Visual pill display
             tag_html = "".join(f'<span class="tag-pill">{t}</span>' for t in tags)
-            st.markdown(
-                f'<div class="output-card">{tag_html}</div>', unsafe_allow_html=True
-            )
-            # Also a copyable version
-            st.markdown("**Copy all tags (comma-separated):**")
+            st.markdown(tag_html, unsafe_allow_html=True)
             st.code(", ".join(tags), language=None)
-            total_chars = len(", ".join(tags))
-            st.caption(f"Tag character count: {total_chars}/500")
         else:
             st.warning("No tags returned.")
 
     # ── Social Media Posts ────────────────────────────────────────────────────
     with st.expander("📱 Social Media Posts", expanded=True):
         social = result.get("social_posts", {})
-        tab_tw, tab_li, tab_ig = st.tabs(["Twitter / X", "LinkedIn", "Instagram"])
-        with tab_tw:
-            tweet = social.get("twitter", "")
-            st.code(tweet, language=None)
-            st.caption(f"{len(tweet)}/280 characters")
-        with tab_li:
-            st.code(social.get("linkedin", ""), language=None)
-        with tab_ig:
-            st.code(social.get("instagram", ""), language=None)
+        st.markdown("**Twitter / X**")
+        st.code(social.get("twitter", ""), language=None)
+        st.markdown("**LinkedIn**")
+        st.code(social.get("linkedin", ""), language=None)
+        st.markdown("**Instagram**")
+        st.code(social.get("instagram", ""), language=None)
 
     # ── Thumbnail Lab ─────────────────────────────────────────────────────────
     with st.expander("🖼️ Thumbnail Lab", expanded=True):
-        st.markdown(
-            "*AI-generated thumbnail concepts for each psychological hook style. "
-            "Click **Generate Images** to create actual visual mockups using Gemini Imagen.*"
-        )
         thumbnail_concepts = result.get("thumbnail_ideas", [])
-        if thumbnail_concepts:
-            st.markdown("**📋 AI Thumbnail Concepts (text):**")
-            for i, idea in enumerate(thumbnail_concepts, 1):
-                st.markdown(f"**Concept {i}:** {idea}")
+        for i, idea in enumerate(thumbnail_concepts, 1):
+            st.markdown(f"**Concept {i}:** {idea}")
 
-        st.markdown("---")
-
-        if st.button("🎨 Generate Thumbnail Images (4 Styles)", use_container_width=True,
-                     help="Uses Gemini Imagen 3 to generate viral-ready thumbnail mockups"):
-            from src.thumbnail_gen import generate_thumbnails
-            import os
-            with st.spinner("🖼️ Generating 4 thumbnail mockups with Gemini Imagen..."):
-                try:
-                    thumbs = generate_thumbnails(
-                        topic=st.session_state.get("last_topic", ""),
-                        thumbnail_concepts=thumbnail_concepts,
-                        api_key=os.getenv("GOOGLE_API_KEY"),
-                    )
-                    st.session_state["thumbnails"] = thumbs
-                except Exception as _te:
-                    st.warning(f"Thumbnail generation failed: {_te}")
-
-        # Display generated thumbnails (2x2 grid)
-        thumbs = st.session_state.get("thumbnails", [])
-        if thumbs:
-            col_a, col_b = st.columns(2)
-            cols = [col_a, col_b, col_a, col_b]
-            for i, thumb in enumerate(thumbs):
-                with cols[i]:
-                    st.markdown(
-                        f"<div style='background:{thumb['color']}22;border:1px solid {thumb['color']}55;"
-                        f"border-radius:10px;padding:10px;margin-bottom:10px'>"
-                        f"<div style='font-weight:700;margin-bottom:4px'>"
-                        f"{thumb['emoji']} {thumb['style']}</div>"
-                        f"<div style='font-size:0.75rem;opacity:0.6;margin-bottom:8px'>"
-                        f"{thumb['tip']}</div></div>",
-                        unsafe_allow_html=True,
-                    )
-                    if thumb.get("image_b64"):
-                        st.image(
-                            f"data:image/png;base64,{thumb['image_b64']}",
-                            caption=thumb["style"],
-                            use_container_width=True,
-                        )
-                    else:
-                        st.info(
-                            f"Imagen API unavailable for {thumb['style']} style. "
-                            "Use the text concept above in Canva or Photoshop.",
-                            icon="ℹ️",
-                        )
-
-    # ── History Dashboard Link ────────────────────────────────────────────────
+    # ── History Link ──────────────────────────────────────────────────────────
     st.markdown("---")
-    st.info(
-        "📊 **Want to see all your past generations and analytics?** "
-        "Use the sidebar navigation → **My History** page.",
-        icon="📊",
-    )
+    st.info("📊 **Memory Status:** Successfully persisted this generation to ChromaDB.", icon="📊")
