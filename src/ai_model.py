@@ -35,7 +35,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.logger import get_logger
 from src.exception import APIException
 
-from langchain_groq import ChatGroq
 import random
 
 load_dotenv()
@@ -141,15 +140,19 @@ def _build_llm_with_fallback() -> ChatGoogleGenerativeAI:
         all_llms.append(_make_gemini(FALLBACK_FLASH_MODEL))
         all_llms.append(_make_gemini(FALLBACK_PRO_MODEL))
 
-    # 2. Add Groq as the ultimate fallback if key exists
+    # 2. Add Groq as the ultimate fallback if key exists (lazy optional import)
     if groq_key:
-        logger.info("Adding Groq as the final fallback provider.")
-        groq_llm = ChatGroq(
-            model=GROQ_MODEL,
-            groq_api_key=groq_key,
-            temperature=0.7,
-        )
-        all_llms.append(groq_llm)
+        try:
+            from langchain_groq import ChatGroq
+            logger.info("Adding Groq as the final fallback provider.")
+            groq_llm = ChatGroq(
+                model=GROQ_MODEL,
+                groq_api_key=groq_key,
+                temperature=0.7,
+            )
+            all_llms.append(groq_llm)
+        except ImportError:
+            logger.warning("langchain-groq not installed. Skipping Groq fallback.")
 
     if not all_llms:
         raise APIException("No models could be initialized.", sys)
